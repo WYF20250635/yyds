@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>高级简易计算器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: system-ui, sans-serif;
+        }
+        body {
+            background-color: #222831;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .calculator {
+            background-color: #393E46;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+        }
+        .display {
+            background: #eeeeee;
+            border-radius: 10px;
+            margin-bottom:16px;
+            padding:16px;
+            text-align: right;
+            min-height: 88px;
+            display:flex;
+            flex-direction:column;
+            justify-content:flex-end;
+            word-break: break-all;
+        }
+        .pre-input{
+            font-size:16px;
+            color:#666;
+            min-height:22px;
+        }
+        .main-input{
+            font-size:36px;
+            font-weight:bold;
+            color:#222;
+        }
+        .buttons{
+            display:grid;
+            grid-template-columns: repeat(5, 60px);
+            gap:10px;
+        }
+        button{
+            height:60px;
+            border:none;
+            border-radius:10px;
+            font-size:18px;
+            cursor:pointer;
+            transition:0.15s;
+        }
+        button:active{
+            transform: scale(0.94);
+        }
+        .btn-num{
+            background:#4a505a;
+            color:white;
+        }
+        .btn-num:hover{
+            background:#5c636e;
+        }
+        .btn-op{
+            background:#00adb5;
+            color:white;
+        }
+        .btn-op:hover{
+            background:#02c2cd;
+        }
+        .btn-func{
+            background:#ff5722;
+            color:white;
+        }
+        .btn-func:hover{
+            background:#ff7043;
+        }
+        .btn-equal{
+            background:#00c853;
+            color:white;
+        }
+        .btn-equal:hover{
+            background:#00e663;
+        }
+    </style>
+</head>
+<body>
+<div class="calculator">
+    <div class="display">
+        <div class="pre-input" id="preText"></div>
+        <div class="main-input" id="mainText">0</div>
+    </div>
+    <div class="buttons">
+        <button class="btn-func" onclick="clearAll()">AC</button>
+        <button class="btn-func" onclick="backspace()">⌫</button>
+        <button class="btn-func" onclick="toggleNegative()">±</button>
+        <button class="btn-func" onclick="calcSqrt()">√</button>
+        <button class="btn-op" onclick="appendChar('/')">÷</button>
+
+        <button class="btn-num" onclick="appendChar('7')">7</button>
+        <button class="btn-num" onclick="appendChar('8')">8</button>
+        <button class="btn-num" onclick="appendChar('9')">9</button>
+        <button class="btn-func" onclick="calcSquare()">x²</button>
+        <button class="btn-op" onclick="appendChar('*')">×</button>
+
+        <button class="btn-num" onclick="appendChar('4')">4</button>
+        <button class="btn-num" onclick="appendChar('5')">5</button>
+        <button class="btn-num" onclick="appendChar('6')">6</button>
+        <button class="btn-func" onclick="appendChar('%')">%</button>
+        <button class="btn-op" onclick="appendChar('-')">−</button>
+
+        <button class="btn-num" onclick="appendChar('1')">1</button>
+        <button class="btn-num" onclick="appendChar('2')">2</button>
+        <button class="btn-num" onclick="appendChar('3')">3</button>
+        <button class="btn-func" onclick="appendChar('.')">.</button>
+        <button class="btn-op" onclick="appendChar('+')">+</button>
+
+        <button class="btn-num" onclick="appendChar('0')">0</button>
+        <button class="btn-num" onclick="appendChar('00')">00</button>
+        <button class="btn-equal" style="grid-column: span 2;" onclick="compute()">=</button>
+    </div>
+</div>
+
+<script>
+let current = "";
+let prev = "";
+const mainDom = document.getElementById('mainText');
+const preDom = document.getElementById('preText');
+
+function refreshDisplay(){
+    mainDom.innerText = current || "0";
+    preDom.innerText = prev;
+}
+
+function appendChar(c){
+    current += c;
+    refreshDisplay();
+}
+
+function clearAll(){
+    current = "";
+    prev = "";
+    refreshDisplay();
+}
+
+function backspace(){
+    current = current.slice(0,-1);
+    refreshDisplay();
+}
+
+function toggleNegative(){
+    if(current.startsWith("-")) current = current.substring(1);
+    else current = "-"+current;
+    refreshDisplay();
+}
+
+function calcSquare(){
+    try{
+        let val = eval(current);
+        current = String(val * val);
+        refreshDisplay();
+    }catch {current="Error";refreshDisplay();}
+}
+
+function calcSqrt(){
+    try{
+        let val = eval(current);
+        if(val<0){current="Error";}
+        else current = String(Math.sqrt(val));
+        refreshDisplay();
+    }catch {current="Error";refreshDisplay();}
+}
+
+function compute(){
+    try{
+        prev = current;
+        let exp = current.replace(/×/g,"*").replace(/−/g,"-");
+        let res = eval(exp);
+        current = String(res);
+    }catch(err){
+        current = "Error";
+    }
+    refreshDisplay();
+}
+</script>
+</body>
+</html>
