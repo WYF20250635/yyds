@@ -1,0 +1,4620 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>斗地主完整网页版</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
+body{background:#164024;color:#fff;min-height:100vh;padding:16px;}
+.container{max-width:980px;margin:0 auto;}
+.page{display:none;}
+.page.active{display:block;}
+h1{text-align:center;color:#ffd040;margin:20px 0;}
+.btn{background:#ff8800;color:white;border:none;padding:12px 20px;font-size:16px;border-radius:8px;margin:5px;cursor:pointer;transition:.12s;}
+.btn:hover{background:#ffa333;}
+.btn:active{transform:scale(0.95);}
+.btn-group{text-align:center;margin:18px 0;}
+.box{background:rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin:12px 0;}
+.card{display:inline-block;background:white;color:#111;width:48px;height:70px;border-radius:6px;text-align:center;line-height:64px;font-size:20px;margin:2px;border:1px #ccc solid;cursor:pointer;user-select:none;}
+.card.selected{background:#ffdd77;transform:translateY(-7px);}
+.area{margin:10px 0;min-height:85px;}
+.log-item{font-size:13px;padding:3px 0;border-bottom:rgba(255,255,255,0.14) 1px solid;}
+#recordBox{max-height:200px;overflow-y:auto;}
+.tip-text{color:#ffdd55;text-align:center;margin:8px;font-size:16px;}
+</style>
+</head>
+<body>
+<div class="container">
+<!--模式选择页-->
+<div id="pageMode" class="page active">
+    <h1>斗地主</h1>
+    <div class="btn-group">
+        <button class="btn" onclick="startGame('normal')">普通斗地主模式</button>
+        <button class="btn" onclick="startGame('gold')">淘金模式</button>
+    </div>
+    <div class="box">
+        <h3>📋 使用记录</h3>
+        <div id="recordBox"></div>
+        <button class="btn" onclick="clearRecord()">清空记录</button>
+    </div>
+</div>
+
+<!--抢地主页面-->
+<div id="pageGrab" class="page">
+    <h1>抢地主阶段</h1>
+    <div class="box">
+        <div class="tip-text" id="grabTip"></div>
+        <div class="btn-group">
+            <button class="btn" id="btnGrab" onclick="grabLandlord(true)">抢地主</button>
+            <button class="btn" id="btnNoGrab" onclick="grabLandlord(false)">不抢</button>
+        </div>
+        <div class="box">
+            <h4>底牌：</h4>
+            <div id="holeCardsBox"></div>
+        </div>
+    </div>
+</div>
+
+<!--游戏出牌页-->
+<div id="pagePlay" class="page">
+    <h1 id="modeTitle"></h1>
+    <div class="box">
+        <div>左边电脑 <span id="leftRole"></span></div>
+        <div class="area" id="leftOut"></div>
+        <div>右边电脑 <span id="rightRole"></span></div>
+        <div class="area" id="rightOut"></div>
+    </div>
+
+    <div class="box">
+        <h3>我的手牌 <span id="myRoleTag"></span></h3>
+        <div id="myCards"></div>
+    </div>
+
+    <div class="box">
+        <h3>出牌区</h3>
+        <div class="area" id="playArea"></div>
+        <div class="btn-group">
+            <button class="btn" onclick="playSubmit()">出牌</button>
+            <button class="btn" onclick="passBtn()">不出</button>
+            <button class="btn" onclick="backToMode()">返回主页</button>
+        </div>
+        <div class="tip-text" id="tip"></div>
+    </div>
+</div>
+</div>
+
+<script>
+//牌权重 3=3 ... A=14,2=15,小王S=16,大王B=17
+const CARD_WEIGHT = {
+    '3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,
+    'J':11,'Q':12,'K':13,'A':14,'2':15,'S':16,'B':17
+};
+const CARD_LIST = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+
+let game = {
+    mode:"normal",
+    hole:[], //底牌3张
+    me:[],left:[],right:[],
+    selected:[],
+    lastPlay:{type:null,cards:[],weight:0},
+    turn:"",
+    landlord:null, // 'me'/'left'/'right'
+    grabIndex:0, //0左AI，1玩家，2右AI
+    over:false
+};
+
+//本地记录
+function loadRecord(){
+    let r = localStorage.getItem("ddz_record");
+    return r ? JSON.parse(r) : [];
+}
+function saveRecord(arr){
+    localStorage.setItem("ddz_record",JSON.stringify(arr));
+}
+function addRecord(text){
+    let arr = loadRecord();
+    arr.unshift({time:new Date().toLocaleString(),msg:text});
+    if(arr.length>30) arr.length=30;
+    saveRecord(arr);
+    renderRecord();
+}
+function renderRecord(){
+    const box = document.getElementById("recordBox");
+    const arr = loadRecord();
+    box.innerHTML = arr.map(x=>`<div class="log-item">[${x.time}] ${x.msg}</div>`).join("");
+}
+function clearRecord(){
+    saveRecord([]);renderRecord();
+}
+
+//洗牌
+function shuffleDeck(){
+    let deck=[];
+    for(let c of CARD_LIST){
+        deck.push(c,c,c,c);
+    }
+    deck.push("S","B");
+    for(let i=deck.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [deck[i],deck[j]] = [deck[j],deck[i]];
+    }
+    return deck;
+}
+
+//手牌排序理牌
+function sortCards(cardArr){
+    return [...cardArr].sort((a,b)=>CARD_WEIGHT[a]-CARD_WEIGHT[b]);
+}
+
+function startGame(mode){
+    game.mode = mode;
+    game.over=false;
+    game.landlord=null;
+    game.grabIndex=0;
+    game.lastPlay={type:null,cards:[],weight:0};
+
+    const deck = shuffleDeck();
+    game.hole = deck.slice(0,3);
+    game.me = deck.slice(3,20);
+    game.left = deck.slice(20,37);
+    game.right = deck.slice(37,54);
+
+    game.me = sortCards(game.me);
+    game.left = sortCards(game.left);
+    game.right = sortCards(game.right);
+    game.selected = [];
+
+    document.getElementById("pageMode").classList.remove("active");
+    document.getElementById("pageGrab").classList.add("active");
+    addRecord(`新一局：${mode==="normal"?"普通斗地主":"淘金模式"}`);
+    renderHole();
+    nextGrab();
+}
+
+function renderHole(){
+    const box = document.getElementById("holeCardsBox");
+    box.innerHTML="";
+    game.hole.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        box.appendChild(d);
+    })
+}
+
+//抢地主流程 0左AI 1玩家 2右AI
+function nextGrab(){
+    const tipDom = document.getElementById("grabTip");
+    game.grabIndex %=3;
+    if(game.grabIndex===0){
+        tipDom.innerText="左边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("left");
+            }else{
+                addRecord("左边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }else if(game.grabIndex===1){
+        tipDom.innerText="轮到你抢地主！";
+        document.getElementById("btnGrab").disabled=false;
+        document.getElementById("btnNoGrab").disabled=false;
+    }else if(game.grabIndex===2){
+        tipDom.innerText="右边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("right");
+            }else{
+                addRecord("右边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }
+}
+
+function grabLandlord(want){
+    document.getElementById("btnGrab").disabled=true;
+    document.getElementById("btnNoGrab").disabled=true;
+    if(want){
+        addRecord("玩家：抢地主");
+        setLandlord("me");
+    }else{
+        addRecord("玩家：不抢地主");
+        game.grabIndex++;
+        nextGrab();
+    }
+}
+
+function setLandlord(who){
+    game.landlord = who;
+    addRecord(`${who==="me"?"玩家":who==="left"?"左边电脑":"右边电脑"}成为地主！`);
+    if(who==="me"){
+        game.me = sortCards([...game.me,...game.hole]);
+    }else if(who==="left"){
+        game.left = sortCards([...game.left,...game.hole]);
+    }else{
+        game.right = sortCards([...game.right,...game.hole]);
+    }
+    //地主先出牌
+    game.turn = who;
+    openPlayPage();
+}
+
+function openPlayPage(){
+    document.getElementById("pageGrab").classList.remove("active");
+    document.getElementById("pagePlay").classList.add("active");
+    document.getElementById("modeTitle").innerText = game.mode==="normal"?"普通斗地主":"淘金模式";
+    document.getElementById("myRoleTag").innerText = game.landlord==="me"?"【地主】":"【农民】";
+    document.getElementById("leftRole").innerText = game.landlord==="left"?"【地主】":"【农民】";
+    document.getElementById("rightRole").innerText = game.landlord==="right"?"【地主】":"【农民】";
+    renderMyCards();
+    renderPlayArea();
+    clearOutAreas();
+    document.getElementById("tip").innerText= game.turn==="me"?"轮到你出牌":"等待电脑出牌";
+    if(game.turn!=="me") robotLoop();
+}
+
+function backToMode(){
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+    document.getElementById("pageMode").classList.add("active");
+}
+
+function renderMyCards(){
+    const dom = document.getElementById("myCards");
+    dom.innerHTML="";
+    game.me.forEach((card,idx)=>{
+        const div = document.createElement("div");
+        div.className = "card "+(game.selected.includes(idx)?"selected":"");
+        div.innerText = card==="S"?"🃏小":card==="B"?"🃏大":card;
+        div.onclick = ()=>{
+            const pos = game.selected.indexOf(idx);
+            if(pos>=0) game.selected.splice(pos,1);
+            else game.selected.push(idx);
+            renderMyCards();
+            renderPlayArea();
+        };
+        dom.appendChild(div);
+    })
+}
+function renderPlayArea(){
+    const area = document.getElementById("playArea");
+    area.innerHTML="";
+    const selCards = game.selected.map(i=>game.me[i]);
+    selCards.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        area.appendChild(d);
+    })
+}
+function clearOutAreas(){
+    document.getElementById("leftOut").innerHTML="";
+    document.getElementById("rightOut").innerHTML="";
+}
+
+//牌型解析
+function getWeights(cards){
+    return cards.map(c=>CARD_WEIGHT[c]);
+}
+function countMap(cards){
+    const m={};
+    cards.forEach(c=>{const w=CARD_WEIGHT[c];m[w]=(m[w]||0)+1;});
+    return m;
+}
+
+function parseCardType(inputCards){
+    const cards = [...inputCards];
+    const weights = getWeights(cards);
+    const map = countMap(cards);
+    const wList = Object.keys(map).map(Number).sort((a,b)=>a-b);
+    const len = cards.length;
+    //王炸
+    if(cards.includes("S")&&cards.includes("B")&&len===2) return {type:"rocket",weight:1000};
+    //炸弹
+    const fourKey = wList.find(w=>map[w]===4);
+    if(fourKey!==undefined&&len===4) return {type:"bomb",weight:fourKey};
+    //单张
+    if(len===1) return {type:"single",weight:weights[0]};
+    //对子
+    if(len===2&&weights[0]===weights[1]) return {type:"pair",weight:weights[0]};
+    //三张
+    if(len===3&&wList.length===1) return {type:"triple",weight:wList[0]};
+    //三带一
+    if(len===4){
+        for(let w of wList) if(map[w]===3) return {type:"triple1",weight:w};
+    }
+    //三带对
+    if(len===5){
+        for(let w of wList) if(map[w]===3) return {type:"triple2",weight:w};
+    }
+    //顺子 >=5，不含2、王
+    function checkStraight(arr){
+        if(arr.some(x=>x>=15)) return null;
+        const s=[...new Set(arr)].sort((a,b)=>a-b);
+        if(s.length!==arr.length) return null;
+        for(let i=1;i<s.length;i++) if(s[i]-s[i-1]!==1) return null;
+        return {type:"straight",weight:s[0]};
+    }
+    if(len>=5){
+        const st = checkStraight(weights);
+        if(st) return st;
+    }
+    //连对 >=3对
+    if(len>=6&&len%2===0){
+        const pairs = wList.filter(w=>map[w]===2).sort((a,b)=>a-b);
+        if(pairs.length>=3){
+            let ok=true;
+            for(let i=1;i<pairs.length;i++){
+                if(pairs[i]>=15||pairs[i]-pairs[i-1]!==1){ok=false;break;}
+            }
+            if(ok) return {type:"doubleStraight",weight:pairs[0]};
+        }
+    }
+    //飞机
+    const triples = wList.filter(w=>map[w]===3).sort((a,b)=>a-b);
+    if(triples.length>=2){
+        let ok=true;
+        for(let i=1;i<triples.length;i++){
+            if(triples[i]>=15||triples[i]-triples[i-1]!==1){ok=false;break;}
+        }
+        if(ok){
+            const n = triples.length;
+            if(len===n*3) return {type:"plane",weight:triples[0]};
+            if(len===n*3+n) return {type:"plane1",weight:triples[0]};
+            if(len===n*3+n*2) return {type:"plane2",weight:triples[0]};
+        }
+    }
+    //四带二
+    if(len===6){
+        for(let w of wList) if(map[w]===4) return {type:"four2",weight:w};
+    }
+    return null;
+}
+
+function isBigger(cur,last){
+    if(!cur) return false;
+    if(cur.type==="rocket") return true;
+    if(cur.type==="bomb"){
+        if(last.type!=="bomb"&&last.type!=="rocket") return true;
+        if(last.type==="bomb") return cur.weight>last.weight;
+    }
+    if(cur.type !== last.type) return false;
+    return cur.weight>last.weight;
+}
+
+function playSubmit(){
+    if(game.over||game.turn!=="me")return;
+    const selIdx = [...game.selected];
+    if(selIdx.length===0){
+        document.getElementById("tip").innerText="请先选择手牌！";return;
+    }
+    const selCards = selIdx.map(i=>game.me[i]);
+    const typeObj = parseCardType(selCards);
+    if(!typeObj){
+        document.getElementById("tip").innerText="❌无效牌型！";return;
+    }
+    if(game.lastPlay.type!==null){
+        if(!isBigger(typeObj,game.lastPlay)){
+            document.getElementById("tip").innerText="❌必须大于上一手牌！";return;
+        }
+    }
+    //出牌，移除手牌
+    selIdx.sort((a,b)=>b-a).forEach(i=>game.me.splice(i,1));
+    game.lastPlay = {...typeObj,cards:selCards};
+    addRecord(`玩家出牌 ${selCards.join(" ")} [${typeObj.type}]`);
+    document.getElementById("tip").innerText="✅出牌成功";
+    game.selected=[];
+    renderMyCards();
+    renderPlayArea();
+    //胜利判定
+    if(game.me.length===0){
+        game.over=true;
+        alert(game.landlord==="me"?"🎉地主胜利！":"🎉农民胜利！");
+        addRecord(game.landlord==="me"?"本局：地主(玩家)胜利":"本局：农民(玩家)胜利");
+        backToMode();
+        return;
+    }
+    game.turn = game.landlord==="me"?"left":"left";
+    robotLoop();
+}
+
+function passBtn(){
+    if(game.over||game.turn!=="me")return;
+    if(game.lastPlay.type===null){
+        document.getElementById("tip").innerText="第一轮不能不出！";return;
+    }
+    addRecord("玩家：不出");
+    game.selected=[];
+    renderMyCards();renderPlayArea();
+    game.turn = "left";
+    robotLoop();
+}
+
+function robotLoop(){
+    if(game.over) return;
+    setTimeout(()=>{
+        if(game.turn==="left"){
+            addRecord("左边电脑：不出");
+            game.turn="right";
+        }else if(game.turn==="right"){
+            addRecord("右边电脑：不出");
+            game.lastPlay={type:null,cards:[],weight:0};
+            game.turn="me";
+        }
+        document.getElementById("tip").innerText = game.turn==="me"?"轮到你出牌":"电脑处理中";
+        if(game.turn!=="me") robotLoop();
+    },1200);
+}
+
+window.onload=()=>{renderRecord();}
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>斗地主完整网页版</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
+body{background:#164024;color:#fff;min-height:100vh;padding:16px;}
+.container{max-width:980px;margin:0 auto;}
+.page{display:none;}
+.page.active{display:block;}
+h1{text-align:center;color:#ffd040;margin:20px 0;}
+.btn{background:#ff8800;color:white;border:none;padding:12px 20px;font-size:16px;border-radius:8px;margin:5px;cursor:pointer;transition:.12s;}
+.btn:hover{background:#ffa333;}
+.btn:active{transform:scale(0.95);}
+.btn-group{text-align:center;margin:18px 0;}
+.box{background:rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin:12px 0;}
+.card{display:inline-block;background:white;color:#111;width:48px;height:70px;border-radius:6px;text-align:center;line-height:64px;font-size:20px;margin:2px;border:1px #ccc solid;cursor:pointer;user-select:none;}
+.card.selected{background:#ffdd77;transform:translateY(-7px);}
+.area{margin:10px 0;min-height:85px;}
+.log-item{font-size:13px;padding:3px 0;border-bottom:rgba(255,255,255,0.14) 1px solid;}
+#recordBox{max-height:200px;overflow-y:auto;}
+.tip-text{color:#ffdd55;text-align:center;margin:8px;font-size:16px;}
+</style>
+</head>
+<body>
+<div class="container">
+<!--模式选择页-->
+<div id="pageMode" class="page active">
+    <h1>斗地主</h1>
+    <div class="btn-group">
+        <button class="btn" onclick="startGame('normal')">普通斗地主模式</button>
+        <button class="btn" onclick="startGame('gold')">淘金模式</button>
+    </div>
+    <div class="box">
+        <h3>📋 使用记录</h3>
+        <div id="recordBox"></div>
+        <button class="btn" onclick="clearRecord()">清空记录</button>
+    </div>
+</div>
+
+<!--抢地主页面-->
+<div id="pageGrab" class="page">
+    <h1>抢地主阶段</h1>
+    <div class="box">
+        <div class="tip-text" id="grabTip"></div>
+        <div class="btn-group">
+            <button class="btn" id="btnGrab" onclick="grabLandlord(true)">抢地主</button>
+            <button class="btn" id="btnNoGrab" onclick="grabLandlord(false)">不抢</button>
+        </div>
+        <div class="box">
+            <h4>底牌：</h4>
+            <div id="holeCardsBox"></div>
+        </div>
+    </div>
+</div>
+
+<!--游戏出牌页-->
+<div id="pagePlay" class="page">
+    <h1 id="modeTitle"></h1>
+    <div class="box">
+        <div>左边电脑 <span id="leftRole"></span></div>
+        <div class="area" id="leftOut"></div>
+        <div>右边电脑 <span id="rightRole"></span></div>
+        <div class="area" id="rightOut"></div>
+    </div>
+
+    <div class="box">
+        <h3>我的手牌 <span id="myRoleTag"></span></h3>
+        <div id="myCards"></div>
+    </div>
+
+    <div class="box">
+        <h3>出牌区</h3>
+        <div class="area" id="playArea"></div>
+        <div class="btn-group">
+            <button class="btn" onclick="playSubmit()">出牌</button>
+            <button class="btn" onclick="passBtn()">不出</button>
+            <button class="btn" onclick="backToMode()">返回主页</button>
+        </div>
+        <div class="tip-text" id="tip"></div>
+    </div>
+</div>
+</div>
+
+<script>
+//牌权重 3=3 ... A=14,2=15,小王S=16,大王B=17
+const CARD_WEIGHT = {
+    '3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,
+    'J':11,'Q':12,'K':13,'A':14,'2':15,'S':16,'B':17
+};
+const CARD_LIST = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+
+let game = {
+    mode:"normal",
+    hole:[], //底牌3张
+    me:[],left:[],right:[],
+    selected:[],
+    lastPlay:{type:null,cards:[],weight:0},
+    turn:"",
+    landlord:null, // 'me'/'left'/'right'
+    grabIndex:0, //0左AI，1玩家，2右AI
+    over:false
+};
+
+//本地记录
+function loadRecord(){
+    let r = localStorage.getItem("ddz_record");
+    return r ? JSON.parse(r) : [];
+}
+function saveRecord(arr){
+    localStorage.setItem("ddz_record",JSON.stringify(arr));
+}
+function addRecord(text){
+    let arr = loadRecord();
+    arr.unshift({time:new Date().toLocaleString(),msg:text});
+    if(arr.length>30) arr.length=30;
+    saveRecord(arr);
+    renderRecord();
+}
+function renderRecord(){
+    const box = document.getElementById("recordBox");
+    const arr = loadRecord();
+    box.innerHTML = arr.map(x=>`<div class="log-item">[${x.time}] ${x.msg}</div>`).join("");
+}
+function clearRecord(){
+    saveRecord([]);renderRecord();
+}
+
+//洗牌
+function shuffleDeck(){
+    let deck=[];
+    for(let c of CARD_LIST){
+        deck.push(c,c,c,c);
+    }
+    deck.push("S","B");
+    for(let i=deck.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [deck[i],deck[j]] = [deck[j],deck[i]];
+    }
+    return deck;
+}
+
+//手牌排序理牌
+function sortCards(cardArr){
+    return [...cardArr].sort((a,b)=>CARD_WEIGHT[a]-CARD_WEIGHT[b]);
+}
+
+function startGame(mode){
+    game.mode = mode;
+    game.over=false;
+    game.landlord=null;
+    game.grabIndex=0;
+    game.lastPlay={type:null,cards:[],weight:0};
+
+    const deck = shuffleDeck();
+    game.hole = deck.slice(0,3);
+    game.me = deck.slice(3,20);
+    game.left = deck.slice(20,37);
+    game.right = deck.slice(37,54);
+
+    game.me = sortCards(game.me);
+    game.left = sortCards(game.left);
+    game.right = sortCards(game.right);
+    game.selected = [];
+
+    document.getElementById("pageMode").classList.remove("active");
+    document.getElementById("pageGrab").classList.add("active");
+    addRecord(`新一局：${mode==="normal"?"普通斗地主":"淘金模式"}`);
+    renderHole();
+    nextGrab();
+}
+
+function renderHole(){
+    const box = document.getElementById("holeCardsBox");
+    box.innerHTML="";
+    game.hole.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        box.appendChild(d);
+    })
+}
+
+//抢地主流程 0左AI 1玩家 2右AI
+function nextGrab(){
+    const tipDom = document.getElementById("grabTip");
+    game.grabIndex %=3;
+    if(game.grabIndex===0){
+        tipDom.innerText="左边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("left");
+            }else{
+                addRecord("左边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }else if(game.grabIndex===1){
+        tipDom.innerText="轮到你抢地主！";
+        document.getElementById("btnGrab").disabled=false;
+        document.getElementById("btnNoGrab").disabled=false;
+    }else if(game.grabIndex===2){
+        tipDom.innerText="右边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("right");
+            }else{
+                addRecord("右边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }
+}
+
+function grabLandlord(want){
+    document.getElementById("btnGrab").disabled=true;
+    document.getElementById("btnNoGrab").disabled=true;
+    if(want){
+        addRecord("玩家：抢地主");
+        setLandlord("me");
+    }else{
+        addRecord("玩家：不抢地主");
+        game.grabIndex++;
+        nextGrab();
+    }
+}
+
+function setLandlord(who){
+    game.landlord = who;
+    addRecord(`${who==="me"?"玩家":who==="left"?"左边电脑":"右边电脑"}成为地主！`);
+    if(who==="me"){
+        game.me = sortCards([...game.me,...game.hole]);
+    }else if(who==="left"){
+        game.left = sortCards([...game.left,...game.hole]);
+    }else{
+        game.right = sortCards([...game.right,...game.hole]);
+    }
+    //地主先出牌
+    game.turn = who;
+    openPlayPage();
+}
+
+function openPlayPage(){
+    document.getElementById("pageGrab").classList.remove("active");
+    document.getElementById("pagePlay").classList.add("active");
+    document.getElementById("modeTitle").innerText = game.mode==="normal"?"普通斗地主":"淘金模式";
+    document.getElementById("myRoleTag").innerText = game.landlord==="me"?"【地主】":"【农民】";
+    document.getElementById("leftRole").innerText = game.landlord==="left"?"【地主】":"【农民】";
+    document.getElementById("rightRole").innerText = game.landlord==="right"?"【地主】":"【农民】";
+    renderMyCards();
+    renderPlayArea();
+    clearOutAreas();
+    document.getElementById("tip").innerText= game.turn==="me"?"轮到你出牌":"等待电脑出牌";
+    if(game.turn!=="me") robotLoop();
+}
+
+function backToMode(){
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+    document.getElementById("pageMode").classList.add("active");
+}
+
+function renderMyCards(){
+    const dom = document.getElementById("myCards");
+    dom.innerHTML="";
+    game.me.forEach((card,idx)=>{
+        const div = document.createElement("div");
+        div.className = "card "+(game.selected.includes(idx)?"selected":"");
+        div.innerText = card==="S"?"🃏小":card==="B"?"🃏大":card;
+        div.onclick = ()=>{
+            const pos = game.selected.indexOf(idx);
+            if(pos>=0) game.selected.splice(pos,1);
+            else game.selected.push(idx);
+            renderMyCards();
+            renderPlayArea();
+        };
+        dom.appendChild(div);
+    })
+}
+function renderPlayArea(){
+    const area = document.getElementById("playArea");
+    area.innerHTML="";
+    const selCards = game.selected.map(i=>game.me[i]);
+    selCards.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        area.appendChild(d);
+    })
+}
+function clearOutAreas(){
+    document.getElementById("leftOut").innerHTML="";
+    document.getElementById("rightOut").innerHTML="";
+}
+
+//牌型解析
+function getWeights(cards){
+    return cards.map(c=>CARD_WEIGHT[c]);
+}
+function countMap(cards){
+    const m={};
+    cards.forEach(c=>{const w=CARD_WEIGHT[c];m[w]=(m[w]||0)+1;});
+    return m;
+}
+
+function parseCardType(inputCards){
+    const cards = [...inputCards];
+    const weights = getWeights(cards);
+    const map = countMap(cards);
+    const wList = Object.keys(map).map(Number).sort((a,b)=>a-b);
+    const len = cards.length;
+    //王炸
+    if(cards.includes("S")&&cards.includes("B")&&len===2) return {type:"rocket",weight:1000};
+    //炸弹
+    const fourKey = wList.find(w=>map[w]===4);
+    if(fourKey!==undefined&&len===4) return {type:"bomb",weight:fourKey};
+    //单张
+    if(len===1) return {type:"single",weight:weights[0]};
+    //对子
+    if(len===2&&weights[0]===weights[1]) return {type:"pair",weight:weights[0]};
+    //三张
+    if(len===3&&wList.length===1) return {type:"triple",weight:wList[0]};
+    //三带一
+    if(len===4){
+        for(let w of wList) if(map[w]===3) return {type:"triple1",weight:w};
+    }
+    //三带对
+    if(len===5){
+        for(let w of wList) if(map[w]===3) return {type:"triple2",weight:w};
+    }
+    //顺子 >=5，不含2、王
+    function checkStraight(arr){
+        if(arr.some(x=>x>=15)) return null;
+        const s=[...new Set(arr)].sort((a,b)=>a-b);
+        if(s.length!==arr.length) return null;
+        for(let i=1;i<s.length;i++) if(s[i]-s[i-1]!==1) return null;
+        return {type:"straight",weight:s[0]};
+    }
+    if(len>=5){
+        const st = checkStraight(weights);
+        if(st) return st;
+    }
+    //连对 >=3对
+    if(len>=6&&len%2===0){
+        const pairs = wList.filter(w=>map[w]===2).sort((a,b)=>a-b);
+        if(pairs.length>=3){
+            let ok=true;
+            for(let i=1;i<pairs.length;i++){
+                if(pairs[i]>=15||pairs[i]-pairs[i-1]!==1){ok=false;break;}
+            }
+            if(ok) return {type:"doubleStraight",weight:pairs[0]};
+        }
+    }
+    //飞机
+    const triples = wList.filter(w=>map[w]===3).sort((a,b)=>a-b);
+    if(triples.length>=2){
+        let ok=true;
+        for(let i=1;i<triples.length;i++){
+            if(triples[i]>=15||triples[i]-triples[i-1]!==1){ok=false;break;}
+        }
+        if(ok){
+            const n = triples.length;
+            if(len===n*3) return {type:"plane",weight:triples[0]};
+            if(len===n*3+n) return {type:"plane1",weight:triples[0]};
+            if(len===n*3+n*2) return {type:"plane2",weight:triples[0]};
+        }
+    }
+    //四带二
+    if(len===6){
+        for(let w of wList) if(map[w]===4) return {type:"four2",weight:w};
+    }
+    return null;
+}
+
+function isBigger(cur,last){
+    if(!cur) return false;
+    if(cur.type==="rocket") return true;
+    if(cur.type==="bomb"){
+        if(last.type!=="bomb"&&last.type!=="rocket") return true;
+        if(last.type==="bomb") return cur.weight>last.weight;
+    }
+    if(cur.type !== last.type) return false;
+    return cur.weight>last.weight;
+}
+
+function playSubmit(){
+    if(game.over||game.turn!=="me")return;
+    const selIdx = [...game.selected];
+    if(selIdx.length===0){
+        document.getElementById("tip").innerText="请先选择手牌！";return;
+    }
+    const selCards = selIdx.map(i=>game.me[i]);
+    const typeObj = parseCardType(selCards);
+    if(!typeObj){
+        document.getElementById("tip").innerText="❌无效牌型！";return;
+    }
+    if(game.lastPlay.type!==null){
+        if(!isBigger(typeObj,game.lastPlay)){
+            document.getElementById("tip").innerText="❌必须大于上一手牌！";return;
+        }
+    }
+    //出牌，移除手牌
+    selIdx.sort((a,b)=>b-a).forEach(i=>game.me.splice(i,1));
+    game.lastPlay = {...typeObj,cards:selCards};
+    addRecord(`玩家出牌 ${selCards.join(" ")} [${typeObj.type}]`);
+    document.getElementById("tip").innerText="✅出牌成功";
+    game.selected=[];
+    renderMyCards();
+    renderPlayArea();
+    //胜利判定
+    if(game.me.length===0){
+        game.over=true;
+        alert(game.landlord==="me"?"🎉地主胜利！":"🎉农民胜利！");
+        addRecord(game.landlord==="me"?"本局：地主(玩家)胜利":"本局：农民(玩家)胜利");
+        backToMode();
+        return;
+    }
+    game.turn = game.landlord==="me"?"left":"left";
+    robotLoop();
+}
+
+function passBtn(){
+    if(game.over||game.turn!=="me")return;
+    if(game.lastPlay.type===null){
+        document.getElementById("tip").innerText="第一轮不能不出！";return;
+    }
+    addRecord("玩家：不出");
+    game.selected=[];
+    renderMyCards();renderPlayArea();
+    game.turn = "left";
+    robotLoop();
+}
+
+function robotLoop(){
+    if(game.over) return;
+    setTimeout(()=>{
+        if(game.turn==="left"){
+            addRecord("左边电脑：不出");
+            game.turn="right";
+        }else if(game.turn==="right"){
+            addRecord("右边电脑：不出");
+            game.lastPlay={type:null,cards:[],weight:0};
+            game.turn="me";
+        }
+        document.getElementById("tip").innerText = game.turn==="me"?"轮到你出牌":"电脑处理中";
+        if(game.turn!=="me") robotLoop();
+    },1200);
+}
+
+window.onload=()=>{renderRecord();}
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>斗地主完整网页版</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
+body{background:#164024;color:#fff;min-height:100vh;padding:16px;}
+.container{max-width:980px;margin:0 auto;}
+.page{display:none;}
+.page.active{display:block;}
+h1{text-align:center;color:#ffd040;margin:20px 0;}
+.btn{background:#ff8800;color:white;border:none;padding:12px 20px;font-size:16px;border-radius:8px;margin:5px;cursor:pointer;transition:.12s;}
+.btn:hover{background:#ffa333;}
+.btn:active{transform:scale(0.95);}
+.btn-group{text-align:center;margin:18px 0;}
+.box{background:rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin:12px 0;}
+.card{display:inline-block;background:white;color:#111;width:48px;height:70px;border-radius:6px;text-align:center;line-height:64px;font-size:20px;margin:2px;border:1px #ccc solid;cursor:pointer;user-select:none;}
+.card.selected{background:#ffdd77;transform:translateY(-7px);}
+.area{margin:10px 0;min-height:85px;}
+.log-item{font-size:13px;padding:3px 0;border-bottom:rgba(255,255,255,0.14) 1px solid;}
+#recordBox{max-height:200px;overflow-y:auto;}
+.tip-text{color:#ffdd55;text-align:center;margin:8px;font-size:16px;}
+</style>
+</head>
+<body>
+<div class="container">
+<!--模式选择页-->
+<div id="pageMode" class="page active">
+    <h1>斗地主</h1>
+    <div class="btn-group">
+        <button class="btn" onclick="startGame('normal')">普通斗地主模式</button>
+        <button class="btn" onclick="startGame('gold')">淘金模式</button>
+    </div>
+    <div class="box">
+        <h3>📋 使用记录</h3>
+        <div id="recordBox"></div>
+        <button class="btn" onclick="clearRecord()">清空记录</button>
+    </div>
+</div>
+
+<!--抢地主页面-->
+<div id="pageGrab" class="page">
+    <h1>抢地主阶段</h1>
+    <div class="box">
+        <div class="tip-text" id="grabTip"></div>
+        <div class="btn-group">
+            <button class="btn" id="btnGrab" onclick="grabLandlord(true)">抢地主</button>
+            <button class="btn" id="btnNoGrab" onclick="grabLandlord(false)">不抢</button>
+        </div>
+        <div class="box">
+            <h4>底牌：</h4>
+            <div id="holeCardsBox"></div>
+        </div>
+    </div>
+</div>
+
+<!--游戏出牌页-->
+<div id="pagePlay" class="page">
+    <h1 id="modeTitle"></h1>
+    <div class="box">
+        <div>左边电脑 <span id="leftRole"></span></div>
+        <div class="area" id="leftOut"></div>
+        <div>右边电脑 <span id="rightRole"></span></div>
+        <div class="area" id="rightOut"></div>
+    </div>
+
+    <div class="box">
+        <h3>我的手牌 <span id="myRoleTag"></span></h3>
+        <div id="myCards"></div>
+    </div>
+
+    <div class="box">
+        <h3>出牌区</h3>
+        <div class="area" id="playArea"></div>
+        <div class="btn-group">
+            <button class="btn" onclick="playSubmit()">出牌</button>
+            <button class="btn" onclick="passBtn()">不出</button>
+            <button class="btn" onclick="backToMode()">返回主页</button>
+        </div>
+        <div class="tip-text" id="tip"></div>
+    </div>
+</div>
+</div>
+
+<script>
+//牌权重 3=3 ... A=14,2=15,小王S=16,大王B=17
+const CARD_WEIGHT = {
+    '3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,
+    'J':11,'Q':12,'K':13,'A':14,'2':15,'S':16,'B':17
+};
+const CARD_LIST = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+
+let game = {
+    mode:"normal",
+    hole:[], //底牌3张
+    me:[],left:[],right:[],
+    selected:[],
+    lastPlay:{type:null,cards:[],weight:0},
+    turn:"",
+    landlord:null, // 'me'/'left'/'right'
+    grabIndex:0, //0左AI，1玩家，2右AI
+    over:false
+};
+
+//本地记录
+function loadRecord(){
+    let r = localStorage.getItem("ddz_record");
+    return r ? JSON.parse(r) : [];
+}
+function saveRecord(arr){
+    localStorage.setItem("ddz_record",JSON.stringify(arr));
+}
+function addRecord(text){
+    let arr = loadRecord();
+    arr.unshift({time:new Date().toLocaleString(),msg:text});
+    if(arr.length>30) arr.length=30;
+    saveRecord(arr);
+    renderRecord();
+}
+function renderRecord(){
+    const box = document.getElementById("recordBox");
+    const arr = loadRecord();
+    box.innerHTML = arr.map(x=>`<div class="log-item">[${x.time}] ${x.msg}</div>`).join("");
+}
+function clearRecord(){
+    saveRecord([]);renderRecord();
+}
+
+//洗牌
+function shuffleDeck(){
+    let deck=[];
+    for(let c of CARD_LIST){
+        deck.push(c,c,c,c);
+    }
+    deck.push("S","B");
+    for(let i=deck.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [deck[i],deck[j]] = [deck[j],deck[i]];
+    }
+    return deck;
+}
+
+//手牌排序理牌
+function sortCards(cardArr){
+    return [...cardArr].sort((a,b)=>CARD_WEIGHT[a]-CARD_WEIGHT[b]);
+}
+
+function startGame(mode){
+    game.mode = mode;
+    game.over=false;
+    game.landlord=null;
+    game.grabIndex=0;
+    game.lastPlay={type:null,cards:[],weight:0};
+
+    const deck = shuffleDeck();
+    game.hole = deck.slice(0,3);
+    game.me = deck.slice(3,20);
+    game.left = deck.slice(20,37);
+    game.right = deck.slice(37,54);
+
+    game.me = sortCards(game.me);
+    game.left = sortCards(game.left);
+    game.right = sortCards(game.right);
+    game.selected = [];
+
+    document.getElementById("pageMode").classList.remove("active");
+    document.getElementById("pageGrab").classList.add("active");
+    addRecord(`新一局：${mode==="normal"?"普通斗地主":"淘金模式"}`);
+    renderHole();
+    nextGrab();
+}
+
+function renderHole(){
+    const box = document.getElementById("holeCardsBox");
+    box.innerHTML="";
+    game.hole.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        box.appendChild(d);
+    })
+}
+
+//抢地主流程 0左AI 1玩家 2右AI
+function nextGrab(){
+    const tipDom = document.getElementById("grabTip");
+    game.grabIndex %=3;
+    if(game.grabIndex===0){
+        tipDom.innerText="左边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("left");
+            }else{
+                addRecord("左边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }else if(game.grabIndex===1){
+        tipDom.innerText="轮到你抢地主！";
+        document.getElementById("btnGrab").disabled=false;
+        document.getElementById("btnNoGrab").disabled=false;
+    }else if(game.grabIndex===2){
+        tipDom.innerText="右边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("right");
+            }else{
+                addRecord("右边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }
+}
+
+function grabLandlord(want){
+    document.getElementById("btnGrab").disabled=true;
+    document.getElementById("btnNoGrab").disabled=true;
+    if(want){
+        addRecord("玩家：抢地主");
+        setLandlord("me");
+    }else{
+        addRecord("玩家：不抢地主");
+        game.grabIndex++;
+        nextGrab();
+    }
+}
+
+function setLandlord(who){
+    game.landlord = who;
+    addRecord(`${who==="me"?"玩家":who==="left"?"左边电脑":"右边电脑"}成为地主！`);
+    if(who==="me"){
+        game.me = sortCards([...game.me,...game.hole]);
+    }else if(who==="left"){
+        game.left = sortCards([...game.left,...game.hole]);
+    }else{
+        game.right = sortCards([...game.right,...game.hole]);
+    }
+    //地主先出牌
+    game.turn = who;
+    openPlayPage();
+}
+
+function openPlayPage(){
+    document.getElementById("pageGrab").classList.remove("active");
+    document.getElementById("pagePlay").classList.add("active");
+    document.getElementById("modeTitle").innerText = game.mode==="normal"?"普通斗地主":"淘金模式";
+    document.getElementById("myRoleTag").innerText = game.landlord==="me"?"【地主】":"【农民】";
+    document.getElementById("leftRole").innerText = game.landlord==="left"?"【地主】":"【农民】";
+    document.getElementById("rightRole").innerText = game.landlord==="right"?"【地主】":"【农民】";
+    renderMyCards();
+    renderPlayArea();
+    clearOutAreas();
+    document.getElementById("tip").innerText= game.turn==="me"?"轮到你出牌":"等待电脑出牌";
+    if(game.turn!=="me") robotLoop();
+}
+
+function backToMode(){
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+    document.getElementById("pageMode").classList.add("active");
+}
+
+function renderMyCards(){
+    const dom = document.getElementById("myCards");
+    dom.innerHTML="";
+    game.me.forEach((card,idx)=>{
+        const div = document.createElement("div");
+        div.className = "card "+(game.selected.includes(idx)?"selected":"");
+        div.innerText = card==="S"?"🃏小":card==="B"?"🃏大":card;
+        div.onclick = ()=>{
+            const pos = game.selected.indexOf(idx);
+            if(pos>=0) game.selected.splice(pos,1);
+            else game.selected.push(idx);
+            renderMyCards();
+            renderPlayArea();
+        };
+        dom.appendChild(div);
+    })
+}
+function renderPlayArea(){
+    const area = document.getElementById("playArea");
+    area.innerHTML="";
+    const selCards = game.selected.map(i=>game.me[i]);
+    selCards.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        area.appendChild(d);
+    })
+}
+function clearOutAreas(){
+    document.getElementById("leftOut").innerHTML="";
+    document.getElementById("rightOut").innerHTML="";
+}
+
+//牌型解析
+function getWeights(cards){
+    return cards.map(c=>CARD_WEIGHT[c]);
+}
+function countMap(cards){
+    const m={};
+    cards.forEach(c=>{const w=CARD_WEIGHT[c];m[w]=(m[w]||0)+1;});
+    return m;
+}
+
+function parseCardType(inputCards){
+    const cards = [...inputCards];
+    const weights = getWeights(cards);
+    const map = countMap(cards);
+    const wList = Object.keys(map).map(Number).sort((a,b)=>a-b);
+    const len = cards.length;
+    //王炸
+    if(cards.includes("S")&&cards.includes("B")&&len===2) return {type:"rocket",weight:1000};
+    //炸弹
+    const fourKey = wList.find(w=>map[w]===4);
+    if(fourKey!==undefined&&len===4) return {type:"bomb",weight:fourKey};
+    //单张
+    if(len===1) return {type:"single",weight:weights[0]};
+    //对子
+    if(len===2&&weights[0]===weights[1]) return {type:"pair",weight:weights[0]};
+    //三张
+    if(len===3&&wList.length===1) return {type:"triple",weight:wList[0]};
+    //三带一
+    if(len===4){
+        for(let w of wList) if(map[w]===3) return {type:"triple1",weight:w};
+    }
+    //三带对
+    if(len===5){
+        for(let w of wList) if(map[w]===3) return {type:"triple2",weight:w};
+    }
+    //顺子 >=5，不含2、王
+    function checkStraight(arr){
+        if(arr.some(x=>x>=15)) return null;
+        const s=[...new Set(arr)].sort((a,b)=>a-b);
+        if(s.length!==arr.length) return null;
+        for(let i=1;i<s.length;i++) if(s[i]-s[i-1]!==1) return null;
+        return {type:"straight",weight:s[0]};
+    }
+    if(len>=5){
+        const st = checkStraight(weights);
+        if(st) return st;
+    }
+    //连对 >=3对
+    if(len>=6&&len%2===0){
+        const pairs = wList.filter(w=>map[w]===2).sort((a,b)=>a-b);
+        if(pairs.length>=3){
+            let ok=true;
+            for(let i=1;i<pairs.length;i++){
+                if(pairs[i]>=15||pairs[i]-pairs[i-1]!==1){ok=false;break;}
+            }
+            if(ok) return {type:"doubleStraight",weight:pairs[0]};
+        }
+    }
+    //飞机
+    const triples = wList.filter(w=>map[w]===3).sort((a,b)=>a-b);
+    if(triples.length>=2){
+        let ok=true;
+        for(let i=1;i<triples.length;i++){
+            if(triples[i]>=15||triples[i]-triples[i-1]!==1){ok=false;break;}
+        }
+        if(ok){
+            const n = triples.length;
+            if(len===n*3) return {type:"plane",weight:triples[0]};
+            if(len===n*3+n) return {type:"plane1",weight:triples[0]};
+            if(len===n*3+n*2) return {type:"plane2",weight:triples[0]};
+        }
+    }
+    //四带二
+    if(len===6){
+        for(let w of wList) if(map[w]===4) return {type:"four2",weight:w};
+    }
+    return null;
+}
+
+function isBigger(cur,last){
+    if(!cur) return false;
+    if(cur.type==="rocket") return true;
+    if(cur.type==="bomb"){
+        if(last.type!=="bomb"&&last.type!=="rocket") return true;
+        if(last.type==="bomb") return cur.weight>last.weight;
+    }
+    if(cur.type !== last.type) return false;
+    return cur.weight>last.weight;
+}
+
+function playSubmit(){
+    if(game.over||game.turn!=="me")return;
+    const selIdx = [...game.selected];
+    if(selIdx.length===0){
+        document.getElementById("tip").innerText="请先选择手牌！";return;
+    }
+    const selCards = selIdx.map(i=>game.me[i]);
+    const typeObj = parseCardType(selCards);
+    if(!typeObj){
+        document.getElementById("tip").innerText="❌无效牌型！";return;
+    }
+    if(game.lastPlay.type!==null){
+        if(!isBigger(typeObj,game.lastPlay)){
+            document.getElementById("tip").innerText="❌必须大于上一手牌！";return;
+        }
+    }
+    //出牌，移除手牌
+    selIdx.sort((a,b)=>b-a).forEach(i=>game.me.splice(i,1));
+    game.lastPlay = {...typeObj,cards:selCards};
+    addRecord(`玩家出牌 ${selCards.join(" ")} [${typeObj.type}]`);
+    document.getElementById("tip").innerText="✅出牌成功";
+    game.selected=[];
+    renderMyCards();
+    renderPlayArea();
+    //胜利判定
+    if(game.me.length===0){
+        game.over=true;
+        alert(game.landlord==="me"?"🎉地主胜利！":"🎉农民胜利！");
+        addRecord(game.landlord==="me"?"本局：地主(玩家)胜利":"本局：农民(玩家)胜利");
+        backToMode();
+        return;
+    }
+    game.turn = game.landlord==="me"?"left":"left";
+    robotLoop();
+}
+
+function passBtn(){
+    if(game.over||game.turn!=="me")return;
+    if(game.lastPlay.type===null){
+        document.getElementById("tip").innerText="第一轮不能不出！";return;
+    }
+    addRecord("玩家：不出");
+    game.selected=[];
+    renderMyCards();renderPlayArea();
+    game.turn = "left";
+    robotLoop();
+}
+
+function robotLoop(){
+    if(game.over) return;
+    setTimeout(()=>{
+        if(game.turn==="left"){
+            addRecord("左边电脑：不出");
+            game.turn="right";
+        }else if(game.turn==="right"){
+            addRecord("右边电脑：不出");
+            game.lastPlay={type:null,cards:[],weight:0};
+            game.turn="me";
+        }
+        document.getElementById("tip").innerText = game.turn==="me"?"轮到你出牌":"电脑处理中";
+        if(game.turn!=="me") robotLoop();
+    },1200);
+}
+
+window.onload=()=>{renderRecord();}
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>斗地主完整网页版</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
+body{background:#164024;color:#fff;min-height:100vh;padding:16px;}
+.container{max-width:980px;margin:0 auto;}
+.page{display:none;}
+.page.active{display:block;}
+h1{text-align:center;color:#ffd040;margin:20px 0;}
+.btn{background:#ff8800;color:white;border:none;padding:12px 20px;font-size:16px;border-radius:8px;margin:5px;cursor:pointer;transition:.12s;}
+.btn:hover{background:#ffa333;}
+.btn:active{transform:scale(0.95);}
+.btn-group{text-align:center;margin:18px 0;}
+.box{background:rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin:12px 0;}
+.card{display:inline-block;background:white;color:#111;width:48px;height:70px;border-radius:6px;text-align:center;line-height:64px;font-size:20px;margin:2px;border:1px #ccc solid;cursor:pointer;user-select:none;}
+.card.selected{background:#ffdd77;transform:translateY(-7px);}
+.area{margin:10px 0;min-height:85px;}
+.log-item{font-size:13px;padding:3px 0;border-bottom:rgba(255,255,255,0.14) 1px solid;}
+#recordBox{max-height:200px;overflow-y:auto;}
+.tip-text{color:#ffdd55;text-align:center;margin:8px;font-size:16px;}
+</style>
+</head>
+<body>
+<div class="container">
+<!--模式选择页-->
+<div id="pageMode" class="page active">
+    <h1>斗地主</h1>
+    <div class="btn-group">
+        <button class="btn" onclick="startGame('normal')">普通斗地主模式</button>
+        <button class="btn" onclick="startGame('gold')">淘金模式</button>
+    </div>
+    <div class="box">
+        <h3>📋 使用记录</h3>
+        <div id="recordBox"></div>
+        <button class="btn" onclick="clearRecord()">清空记录</button>
+    </div>
+</div>
+
+<!--抢地主页面-->
+<div id="pageGrab" class="page">
+    <h1>抢地主阶段</h1>
+    <div class="box">
+        <div class="tip-text" id="grabTip"></div>
+        <div class="btn-group">
+            <button class="btn" id="btnGrab" onclick="grabLandlord(true)">抢地主</button>
+            <button class="btn" id="btnNoGrab" onclick="grabLandlord(false)">不抢</button>
+        </div>
+        <div class="box">
+            <h4>底牌：</h4>
+            <div id="holeCardsBox"></div>
+        </div>
+    </div>
+</div>
+
+<!--游戏出牌页-->
+<div id="pagePlay" class="page">
+    <h1 id="modeTitle"></h1>
+    <div class="box">
+        <div>左边电脑 <span id="leftRole"></span></div>
+        <div class="area" id="leftOut"></div>
+        <div>右边电脑 <span id="rightRole"></span></div>
+        <div class="area" id="rightOut"></div>
+    </div>
+
+    <div class="box">
+        <h3>我的手牌 <span id="myRoleTag"></span></h3>
+        <div id="myCards"></div>
+    </div>
+
+    <div class="box">
+        <h3>出牌区</h3>
+        <div class="area" id="playArea"></div>
+        <div class="btn-group">
+            <button class="btn" onclick="playSubmit()">出牌</button>
+            <button class="btn" onclick="passBtn()">不出</button>
+            <button class="btn" onclick="backToMode()">返回主页</button>
+        </div>
+        <div class="tip-text" id="tip"></div>
+    </div>
+</div>
+</div>
+
+<script>
+//牌权重 3=3 ... A=14,2=15,小王S=16,大王B=17
+const CARD_WEIGHT = {
+    '3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,
+    'J':11,'Q':12,'K':13,'A':14,'2':15,'S':16,'B':17
+};
+const CARD_LIST = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+
+let game = {
+    mode:"normal",
+    hole:[], //底牌3张
+    me:[],left:[],right:[],
+    selected:[],
+    lastPlay:{type:null,cards:[],weight:0},
+    turn:"",
+    landlord:null, // 'me'/'left'/'right'
+    grabIndex:0, //0左AI，1玩家，2右AI
+    over:false
+};
+
+//本地记录
+function loadRecord(){
+    let r = localStorage.getItem("ddz_record");
+    return r ? JSON.parse(r) : [];
+}
+function saveRecord(arr){
+    localStorage.setItem("ddz_record",JSON.stringify(arr));
+}
+function addRecord(text){
+    let arr = loadRecord();
+    arr.unshift({time:new Date().toLocaleString(),msg:text});
+    if(arr.length>30) arr.length=30;
+    saveRecord(arr);
+    renderRecord();
+}
+function renderRecord(){
+    const box = document.getElementById("recordBox");
+    const arr = loadRecord();
+    box.innerHTML = arr.map(x=>`<div class="log-item">[${x.time}] ${x.msg}</div>`).join("");
+}
+function clearRecord(){
+    saveRecord([]);renderRecord();
+}
+
+//洗牌
+function shuffleDeck(){
+    let deck=[];
+    for(let c of CARD_LIST){
+        deck.push(c,c,c,c);
+    }
+    deck.push("S","B");
+    for(let i=deck.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [deck[i],deck[j]] = [deck[j],deck[i]];
+    }
+    return deck;
+}
+
+//手牌排序理牌
+function sortCards(cardArr){
+    return [...cardArr].sort((a,b)=>CARD_WEIGHT[a]-CARD_WEIGHT[b]);
+}
+
+function startGame(mode){
+    game.mode = mode;
+    game.over=false;
+    game.landlord=null;
+    game.grabIndex=0;
+    game.lastPlay={type:null,cards:[],weight:0};
+
+    const deck = shuffleDeck();
+    game.hole = deck.slice(0,3);
+    game.me = deck.slice(3,20);
+    game.left = deck.slice(20,37);
+    game.right = deck.slice(37,54);
+
+    game.me = sortCards(game.me);
+    game.left = sortCards(game.left);
+    game.right = sortCards(game.right);
+    game.selected = [];
+
+    document.getElementById("pageMode").classList.remove("active");
+    document.getElementById("pageGrab").classList.add("active");
+    addRecord(`新一局：${mode==="normal"?"普通斗地主":"淘金模式"}`);
+    renderHole();
+    nextGrab();
+}
+
+function renderHole(){
+    const box = document.getElementById("holeCardsBox");
+    box.innerHTML="";
+    game.hole.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        box.appendChild(d);
+    })
+}
+
+//抢地主流程 0左AI 1玩家 2右AI
+function nextGrab(){
+    const tipDom = document.getElementById("grabTip");
+    game.grabIndex %=3;
+    if(game.grabIndex===0){
+        tipDom.innerText="左边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("left");
+            }else{
+                addRecord("左边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }else if(game.grabIndex===1){
+        tipDom.innerText="轮到你抢地主！";
+        document.getElementById("btnGrab").disabled=false;
+        document.getElementById("btnNoGrab").disabled=false;
+    }else if(game.grabIndex===2){
+        tipDom.innerText="右边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("right");
+            }else{
+                addRecord("右边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }
+}
+
+function grabLandlord(want){
+    document.getElementById("btnGrab").disabled=true;
+    document.getElementById("btnNoGrab").disabled=true;
+    if(want){
+        addRecord("玩家：抢地主");
+        setLandlord("me");
+    }else{
+        addRecord("玩家：不抢地主");
+        game.grabIndex++;
+        nextGrab();
+    }
+}
+
+function setLandlord(who){
+    game.landlord = who;
+    addRecord(`${who==="me"?"玩家":who==="left"?"左边电脑":"右边电脑"}成为地主！`);
+    if(who==="me"){
+        game.me = sortCards([...game.me,...game.hole]);
+    }else if(who==="left"){
+        game.left = sortCards([...game.left,...game.hole]);
+    }else{
+        game.right = sortCards([...game.right,...game.hole]);
+    }
+    //地主先出牌
+    game.turn = who;
+    openPlayPage();
+}
+
+function openPlayPage(){
+    document.getElementById("pageGrab").classList.remove("active");
+    document.getElementById("pagePlay").classList.add("active");
+    document.getElementById("modeTitle").innerText = game.mode==="normal"?"普通斗地主":"淘金模式";
+    document.getElementById("myRoleTag").innerText = game.landlord==="me"?"【地主】":"【农民】";
+    document.getElementById("leftRole").innerText = game.landlord==="left"?"【地主】":"【农民】";
+    document.getElementById("rightRole").innerText = game.landlord==="right"?"【地主】":"【农民】";
+    renderMyCards();
+    renderPlayArea();
+    clearOutAreas();
+    document.getElementById("tip").innerText= game.turn==="me"?"轮到你出牌":"等待电脑出牌";
+    if(game.turn!=="me") robotLoop();
+}
+
+function backToMode(){
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+    document.getElementById("pageMode").classList.add("active");
+}
+
+function renderMyCards(){
+    const dom = document.getElementById("myCards");
+    dom.innerHTML="";
+    game.me.forEach((card,idx)=>{
+        const div = document.createElement("div");
+        div.className = "card "+(game.selected.includes(idx)?"selected":"");
+        div.innerText = card==="S"?"🃏小":card==="B"?"🃏大":card;
+        div.onclick = ()=>{
+            const pos = game.selected.indexOf(idx);
+            if(pos>=0) game.selected.splice(pos,1);
+            else game.selected.push(idx);
+            renderMyCards();
+            renderPlayArea();
+        };
+        dom.appendChild(div);
+    })
+}
+function renderPlayArea(){
+    const area = document.getElementById("playArea");
+    area.innerHTML="";
+    const selCards = game.selected.map(i=>game.me[i]);
+    selCards.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        area.appendChild(d);
+    })
+}
+function clearOutAreas(){
+    document.getElementById("leftOut").innerHTML="";
+    document.getElementById("rightOut").innerHTML="";
+}
+
+//牌型解析
+function getWeights(cards){
+    return cards.map(c=>CARD_WEIGHT[c]);
+}
+function countMap(cards){
+    const m={};
+    cards.forEach(c=>{const w=CARD_WEIGHT[c];m[w]=(m[w]||0)+1;});
+    return m;
+}
+
+function parseCardType(inputCards){
+    const cards = [...inputCards];
+    const weights = getWeights(cards);
+    const map = countMap(cards);
+    const wList = Object.keys(map).map(Number).sort((a,b)=>a-b);
+    const len = cards.length;
+    //王炸
+    if(cards.includes("S")&&cards.includes("B")&&len===2) return {type:"rocket",weight:1000};
+    //炸弹
+    const fourKey = wList.find(w=>map[w]===4);
+    if(fourKey!==undefined&&len===4) return {type:"bomb",weight:fourKey};
+    //单张
+    if(len===1) return {type:"single",weight:weights[0]};
+    //对子
+    if(len===2&&weights[0]===weights[1]) return {type:"pair",weight:weights[0]};
+    //三张
+    if(len===3&&wList.length===1) return {type:"triple",weight:wList[0]};
+    //三带一
+    if(len===4){
+        for(let w of wList) if(map[w]===3) return {type:"triple1",weight:w};
+    }
+    //三带对
+    if(len===5){
+        for(let w of wList) if(map[w]===3) return {type:"triple2",weight:w};
+    }
+    //顺子 >=5，不含2、王
+    function checkStraight(arr){
+        if(arr.some(x=>x>=15)) return null;
+        const s=[...new Set(arr)].sort((a,b)=>a-b);
+        if(s.length!==arr.length) return null;
+        for(let i=1;i<s.length;i++) if(s[i]-s[i-1]!==1) return null;
+        return {type:"straight",weight:s[0]};
+    }
+    if(len>=5){
+        const st = checkStraight(weights);
+        if(st) return st;
+    }
+    //连对 >=3对
+    if(len>=6&&len%2===0){
+        const pairs = wList.filter(w=>map[w]===2).sort((a,b)=>a-b);
+        if(pairs.length>=3){
+            let ok=true;
+            for(let i=1;i<pairs.length;i++){
+                if(pairs[i]>=15||pairs[i]-pairs[i-1]!==1){ok=false;break;}
+            }
+            if(ok) return {type:"doubleStraight",weight:pairs[0]};
+        }
+    }
+    //飞机
+    const triples = wList.filter(w=>map[w]===3).sort((a,b)=>a-b);
+    if(triples.length>=2){
+        let ok=true;
+        for(let i=1;i<triples.length;i++){
+            if(triples[i]>=15||triples[i]-triples[i-1]!==1){ok=false;break;}
+        }
+        if(ok){
+            const n = triples.length;
+            if(len===n*3) return {type:"plane",weight:triples[0]};
+            if(len===n*3+n) return {type:"plane1",weight:triples[0]};
+            if(len===n*3+n*2) return {type:"plane2",weight:triples[0]};
+        }
+    }
+    //四带二
+    if(len===6){
+        for(let w of wList) if(map[w]===4) return {type:"four2",weight:w};
+    }
+    return null;
+}
+
+function isBigger(cur,last){
+    if(!cur) return false;
+    if(cur.type==="rocket") return true;
+    if(cur.type==="bomb"){
+        if(last.type!=="bomb"&&last.type!=="rocket") return true;
+        if(last.type==="bomb") return cur.weight>last.weight;
+    }
+    if(cur.type !== last.type) return false;
+    return cur.weight>last.weight;
+}
+
+function playSubmit(){
+    if(game.over||game.turn!=="me")return;
+    const selIdx = [...game.selected];
+    if(selIdx.length===0){
+        document.getElementById("tip").innerText="请先选择手牌！";return;
+    }
+    const selCards = selIdx.map(i=>game.me[i]);
+    const typeObj = parseCardType(selCards);
+    if(!typeObj){
+        document.getElementById("tip").innerText="❌无效牌型！";return;
+    }
+    if(game.lastPlay.type!==null){
+        if(!isBigger(typeObj,game.lastPlay)){
+            document.getElementById("tip").innerText="❌必须大于上一手牌！";return;
+        }
+    }
+    //出牌，移除手牌
+    selIdx.sort((a,b)=>b-a).forEach(i=>game.me.splice(i,1));
+    game.lastPlay = {...typeObj,cards:selCards};
+    addRecord(`玩家出牌 ${selCards.join(" ")} [${typeObj.type}]`);
+    document.getElementById("tip").innerText="✅出牌成功";
+    game.selected=[];
+    renderMyCards();
+    renderPlayArea();
+    //胜利判定
+    if(game.me.length===0){
+        game.over=true;
+        alert(game.landlord==="me"?"🎉地主胜利！":"🎉农民胜利！");
+        addRecord(game.landlord==="me"?"本局：地主(玩家)胜利":"本局：农民(玩家)胜利");
+        backToMode();
+        return;
+    }
+    game.turn = game.landlord==="me"?"left":"left";
+    robotLoop();
+}
+
+function passBtn(){
+    if(game.over||game.turn!=="me")return;
+    if(game.lastPlay.type===null){
+        document.getElementById("tip").innerText="第一轮不能不出！";return;
+    }
+    addRecord("玩家：不出");
+    game.selected=[];
+    renderMyCards();renderPlayArea();
+    game.turn = "left";
+    robotLoop();
+}
+
+function robotLoop(){
+    if(game.over) return;
+    setTimeout(()=>{
+        if(game.turn==="left"){
+            addRecord("左边电脑：不出");
+            game.turn="right";
+        }else if(game.turn==="right"){
+            addRecord("右边电脑：不出");
+            game.lastPlay={type:null,cards:[],weight:0};
+            game.turn="me";
+        }
+        document.getElementById("tip").innerText = game.turn==="me"?"轮到你出牌":"电脑处理中";
+        if(game.turn!=="me") robotLoop();
+    },1200);
+}
+
+window.onload=()=>{renderRecord();}
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>斗地主完整网页版</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
+body{background:#164024;color:#fff;min-height:100vh;padding:16px;}
+.container{max-width:980px;margin:0 auto;}
+.page{display:none;}
+.page.active{display:block;}
+h1{text-align:center;color:#ffd040;margin:20px 0;}
+.btn{background:#ff8800;color:white;border:none;padding:12px 20px;font-size:16px;border-radius:8px;margin:5px;cursor:pointer;transition:.12s;}
+.btn:hover{background:#ffa333;}
+.btn:active{transform:scale(0.95);}
+.btn-group{text-align:center;margin:18px 0;}
+.box{background:rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin:12px 0;}
+.card{display:inline-block;background:white;color:#111;width:48px;height:70px;border-radius:6px;text-align:center;line-height:64px;font-size:20px;margin:2px;border:1px #ccc solid;cursor:pointer;user-select:none;}
+.card.selected{background:#ffdd77;transform:translateY(-7px);}
+.area{margin:10px 0;min-height:85px;}
+.log-item{font-size:13px;padding:3px 0;border-bottom:rgba(255,255,255,0.14) 1px solid;}
+#recordBox{max-height:200px;overflow-y:auto;}
+.tip-text{color:#ffdd55;text-align:center;margin:8px;font-size:16px;}
+</style>
+</head>
+<body>
+<div class="container">
+<!--模式选择页-->
+<div id="pageMode" class="page active">
+    <h1>斗地主</h1>
+    <div class="btn-group">
+        <button class="btn" onclick="startGame('normal')">普通斗地主模式</button>
+        <button class="btn" onclick="startGame('gold')">淘金模式</button>
+    </div>
+    <div class="box">
+        <h3>📋 使用记录</h3>
+        <div id="recordBox"></div>
+        <button class="btn" onclick="clearRecord()">清空记录</button>
+    </div>
+</div>
+
+<!--抢地主页面-->
+<div id="pageGrab" class="page">
+    <h1>抢地主阶段</h1>
+    <div class="box">
+        <div class="tip-text" id="grabTip"></div>
+        <div class="btn-group">
+            <button class="btn" id="btnGrab" onclick="grabLandlord(true)">抢地主</button>
+            <button class="btn" id="btnNoGrab" onclick="grabLandlord(false)">不抢</button>
+        </div>
+        <div class="box">
+            <h4>底牌：</h4>
+            <div id="holeCardsBox"></div>
+        </div>
+    </div>
+</div>
+
+<!--游戏出牌页-->
+<div id="pagePlay" class="page">
+    <h1 id="modeTitle"></h1>
+    <div class="box">
+        <div>左边电脑 <span id="leftRole"></span></div>
+        <div class="area" id="leftOut"></div>
+        <div>右边电脑 <span id="rightRole"></span></div>
+        <div class="area" id="rightOut"></div>
+    </div>
+
+    <div class="box">
+        <h3>我的手牌 <span id="myRoleTag"></span></h3>
+        <div id="myCards"></div>
+    </div>
+
+    <div class="box">
+        <h3>出牌区</h3>
+        <div class="area" id="playArea"></div>
+        <div class="btn-group">
+            <button class="btn" onclick="playSubmit()">出牌</button>
+            <button class="btn" onclick="passBtn()">不出</button>
+            <button class="btn" onclick="backToMode()">返回主页</button>
+        </div>
+        <div class="tip-text" id="tip"></div>
+    </div>
+</div>
+</div>
+
+<script>
+//牌权重 3=3 ... A=14,2=15,小王S=16,大王B=17
+const CARD_WEIGHT = {
+    '3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,
+    'J':11,'Q':12,'K':13,'A':14,'2':15,'S':16,'B':17
+};
+const CARD_LIST = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+
+let game = {
+    mode:"normal",
+    hole:[], //底牌3张
+    me:[],left:[],right:[],
+    selected:[],
+    lastPlay:{type:null,cards:[],weight:0},
+    turn:"",
+    landlord:null, // 'me'/'left'/'right'
+    grabIndex:0, //0左AI，1玩家，2右AI
+    over:false
+};
+
+//本地记录
+function loadRecord(){
+    let r = localStorage.getItem("ddz_record");
+    return r ? JSON.parse(r) : [];
+}
+function saveRecord(arr){
+    localStorage.setItem("ddz_record",JSON.stringify(arr));
+}
+function addRecord(text){
+    let arr = loadRecord();
+    arr.unshift({time:new Date().toLocaleString(),msg:text});
+    if(arr.length>30) arr.length=30;
+    saveRecord(arr);
+    renderRecord();
+}
+function renderRecord(){
+    const box = document.getElementById("recordBox");
+    const arr = loadRecord();
+    box.innerHTML = arr.map(x=>`<div class="log-item">[${x.time}] ${x.msg}</div>`).join("");
+}
+function clearRecord(){
+    saveRecord([]);renderRecord();
+}
+
+//洗牌
+function shuffleDeck(){
+    let deck=[];
+    for(let c of CARD_LIST){
+        deck.push(c,c,c,c);
+    }
+    deck.push("S","B");
+    for(let i=deck.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [deck[i],deck[j]] = [deck[j],deck[i]];
+    }
+    return deck;
+}
+
+//手牌排序理牌
+function sortCards(cardArr){
+    return [...cardArr].sort((a,b)=>CARD_WEIGHT[a]-CARD_WEIGHT[b]);
+}
+
+function startGame(mode){
+    game.mode = mode;
+    game.over=false;
+    game.landlord=null;
+    game.grabIndex=0;
+    game.lastPlay={type:null,cards:[],weight:0};
+
+    const deck = shuffleDeck();
+    game.hole = deck.slice(0,3);
+    game.me = deck.slice(3,20);
+    game.left = deck.slice(20,37);
+    game.right = deck.slice(37,54);
+
+    game.me = sortCards(game.me);
+    game.left = sortCards(game.left);
+    game.right = sortCards(game.right);
+    game.selected = [];
+
+    document.getElementById("pageMode").classList.remove("active");
+    document.getElementById("pageGrab").classList.add("active");
+    addRecord(`新一局：${mode==="normal"?"普通斗地主":"淘金模式"}`);
+    renderHole();
+    nextGrab();
+}
+
+function renderHole(){
+    const box = document.getElementById("holeCardsBox");
+    box.innerHTML="";
+    game.hole.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        box.appendChild(d);
+    })
+}
+
+//抢地主流程 0左AI 1玩家 2右AI
+function nextGrab(){
+    const tipDom = document.getElementById("grabTip");
+    game.grabIndex %=3;
+    if(game.grabIndex===0){
+        tipDom.innerText="左边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("left");
+            }else{
+                addRecord("左边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }else if(game.grabIndex===1){
+        tipDom.innerText="轮到你抢地主！";
+        document.getElementById("btnGrab").disabled=false;
+        document.getElementById("btnNoGrab").disabled=false;
+    }else if(game.grabIndex===2){
+        tipDom.innerText="右边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("right");
+            }else{
+                addRecord("右边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }
+}
+
+function grabLandlord(want){
+    document.getElementById("btnGrab").disabled=true;
+    document.getElementById("btnNoGrab").disabled=true;
+    if(want){
+        addRecord("玩家：抢地主");
+        setLandlord("me");
+    }else{
+        addRecord("玩家：不抢地主");
+        game.grabIndex++;
+        nextGrab();
+    }
+}
+
+function setLandlord(who){
+    game.landlord = who;
+    addRecord(`${who==="me"?"玩家":who==="left"?"左边电脑":"右边电脑"}成为地主！`);
+    if(who==="me"){
+        game.me = sortCards([...game.me,...game.hole]);
+    }else if(who==="left"){
+        game.left = sortCards([...game.left,...game.hole]);
+    }else{
+        game.right = sortCards([...game.right,...game.hole]);
+    }
+    //地主先出牌
+    game.turn = who;
+    openPlayPage();
+}
+
+function openPlayPage(){
+    document.getElementById("pageGrab").classList.remove("active");
+    document.getElementById("pagePlay").classList.add("active");
+    document.getElementById("modeTitle").innerText = game.mode==="normal"?"普通斗地主":"淘金模式";
+    document.getElementById("myRoleTag").innerText = game.landlord==="me"?"【地主】":"【农民】";
+    document.getElementById("leftRole").innerText = game.landlord==="left"?"【地主】":"【农民】";
+    document.getElementById("rightRole").innerText = game.landlord==="right"?"【地主】":"【农民】";
+    renderMyCards();
+    renderPlayArea();
+    clearOutAreas();
+    document.getElementById("tip").innerText= game.turn==="me"?"轮到你出牌":"等待电脑出牌";
+    if(game.turn!=="me") robotLoop();
+}
+
+function backToMode(){
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+    document.getElementById("pageMode").classList.add("active");
+}
+
+function renderMyCards(){
+    const dom = document.getElementById("myCards");
+    dom.innerHTML="";
+    game.me.forEach((card,idx)=>{
+        const div = document.createElement("div");
+        div.className = "card "+(game.selected.includes(idx)?"selected":"");
+        div.innerText = card==="S"?"🃏小":card==="B"?"🃏大":card;
+        div.onclick = ()=>{
+            const pos = game.selected.indexOf(idx);
+            if(pos>=0) game.selected.splice(pos,1);
+            else game.selected.push(idx);
+            renderMyCards();
+            renderPlayArea();
+        };
+        dom.appendChild(div);
+    })
+}
+function renderPlayArea(){
+    const area = document.getElementById("playArea");
+    area.innerHTML="";
+    const selCards = game.selected.map(i=>game.me[i]);
+    selCards.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        area.appendChild(d);
+    })
+}
+function clearOutAreas(){
+    document.getElementById("leftOut").innerHTML="";
+    document.getElementById("rightOut").innerHTML="";
+}
+
+//牌型解析
+function getWeights(cards){
+    return cards.map(c=>CARD_WEIGHT[c]);
+}
+function countMap(cards){
+    const m={};
+    cards.forEach(c=>{const w=CARD_WEIGHT[c];m[w]=(m[w]||0)+1;});
+    return m;
+}
+
+function parseCardType(inputCards){
+    const cards = [...inputCards];
+    const weights = getWeights(cards);
+    const map = countMap(cards);
+    const wList = Object.keys(map).map(Number).sort((a,b)=>a-b);
+    const len = cards.length;
+    //王炸
+    if(cards.includes("S")&&cards.includes("B")&&len===2) return {type:"rocket",weight:1000};
+    //炸弹
+    const fourKey = wList.find(w=>map[w]===4);
+    if(fourKey!==undefined&&len===4) return {type:"bomb",weight:fourKey};
+    //单张
+    if(len===1) return {type:"single",weight:weights[0]};
+    //对子
+    if(len===2&&weights[0]===weights[1]) return {type:"pair",weight:weights[0]};
+    //三张
+    if(len===3&&wList.length===1) return {type:"triple",weight:wList[0]};
+    //三带一
+    if(len===4){
+        for(let w of wList) if(map[w]===3) return {type:"triple1",weight:w};
+    }
+    //三带对
+    if(len===5){
+        for(let w of wList) if(map[w]===3) return {type:"triple2",weight:w};
+    }
+    //顺子 >=5，不含2、王
+    function checkStraight(arr){
+        if(arr.some(x=>x>=15)) return null;
+        const s=[...new Set(arr)].sort((a,b)=>a-b);
+        if(s.length!==arr.length) return null;
+        for(let i=1;i<s.length;i++) if(s[i]-s[i-1]!==1) return null;
+        return {type:"straight",weight:s[0]};
+    }
+    if(len>=5){
+        const st = checkStraight(weights);
+        if(st) return st;
+    }
+    //连对 >=3对
+    if(len>=6&&len%2===0){
+        const pairs = wList.filter(w=>map[w]===2).sort((a,b)=>a-b);
+        if(pairs.length>=3){
+            let ok=true;
+            for(let i=1;i<pairs.length;i++){
+                if(pairs[i]>=15||pairs[i]-pairs[i-1]!==1){ok=false;break;}
+            }
+            if(ok) return {type:"doubleStraight",weight:pairs[0]};
+        }
+    }
+    //飞机
+    const triples = wList.filter(w=>map[w]===3).sort((a,b)=>a-b);
+    if(triples.length>=2){
+        let ok=true;
+        for(let i=1;i<triples.length;i++){
+            if(triples[i]>=15||triples[i]-triples[i-1]!==1){ok=false;break;}
+        }
+        if(ok){
+            const n = triples.length;
+            if(len===n*3) return {type:"plane",weight:triples[0]};
+            if(len===n*3+n) return {type:"plane1",weight:triples[0]};
+            if(len===n*3+n*2) return {type:"plane2",weight:triples[0]};
+        }
+    }
+    //四带二
+    if(len===6){
+        for(let w of wList) if(map[w]===4) return {type:"four2",weight:w};
+    }
+    return null;
+}
+
+function isBigger(cur,last){
+    if(!cur) return false;
+    if(cur.type==="rocket") return true;
+    if(cur.type==="bomb"){
+        if(last.type!=="bomb"&&last.type!=="rocket") return true;
+        if(last.type==="bomb") return cur.weight>last.weight;
+    }
+    if(cur.type !== last.type) return false;
+    return cur.weight>last.weight;
+}
+
+function playSubmit(){
+    if(game.over||game.turn!=="me")return;
+    const selIdx = [...game.selected];
+    if(selIdx.length===0){
+        document.getElementById("tip").innerText="请先选择手牌！";return;
+    }
+    const selCards = selIdx.map(i=>game.me[i]);
+    const typeObj = parseCardType(selCards);
+    if(!typeObj){
+        document.getElementById("tip").innerText="❌无效牌型！";return;
+    }
+    if(game.lastPlay.type!==null){
+        if(!isBigger(typeObj,game.lastPlay)){
+            document.getElementById("tip").innerText="❌必须大于上一手牌！";return;
+        }
+    }
+    //出牌，移除手牌
+    selIdx.sort((a,b)=>b-a).forEach(i=>game.me.splice(i,1));
+    game.lastPlay = {...typeObj,cards:selCards};
+    addRecord(`玩家出牌 ${selCards.join(" ")} [${typeObj.type}]`);
+    document.getElementById("tip").innerText="✅出牌成功";
+    game.selected=[];
+    renderMyCards();
+    renderPlayArea();
+    //胜利判定
+    if(game.me.length===0){
+        game.over=true;
+        alert(game.landlord==="me"?"🎉地主胜利！":"🎉农民胜利！");
+        addRecord(game.landlord==="me"?"本局：地主(玩家)胜利":"本局：农民(玩家)胜利");
+        backToMode();
+        return;
+    }
+    game.turn = game.landlord==="me"?"left":"left";
+    robotLoop();
+}
+
+function passBtn(){
+    if(game.over||game.turn!=="me")return;
+    if(game.lastPlay.type===null){
+        document.getElementById("tip").innerText="第一轮不能不出！";return;
+    }
+    addRecord("玩家：不出");
+    game.selected=[];
+    renderMyCards();renderPlayArea();
+    game.turn = "left";
+    robotLoop();
+}
+
+function robotLoop(){
+    if(game.over) return;
+    setTimeout(()=>{
+        if(game.turn==="left"){
+            addRecord("左边电脑：不出");
+            game.turn="right";
+        }else if(game.turn==="right"){
+            addRecord("右边电脑：不出");
+            game.lastPlay={type:null,cards:[],weight:0};
+            game.turn="me";
+        }
+        document.getElementById("tip").innerText = game.turn==="me"?"轮到你出牌":"电脑处理中";
+        if(game.turn!=="me") robotLoop();
+    },1200);
+}
+
+window.onload=()=>{renderRecord();}
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>斗地主完整网页版</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
+body{background:#164024;color:#fff;min-height:100vh;padding:16px;}
+.container{max-width:980px;margin:0 auto;}
+.page{display:none;}
+.page.active{display:block;}
+h1{text-align:center;color:#ffd040;margin:20px 0;}
+.btn{background:#ff8800;color:white;border:none;padding:12px 20px;font-size:16px;border-radius:8px;margin:5px;cursor:pointer;transition:.12s;}
+.btn:hover{background:#ffa333;}
+.btn:active{transform:scale(0.95);}
+.btn-group{text-align:center;margin:18px 0;}
+.box{background:rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin:12px 0;}
+.card{display:inline-block;background:white;color:#111;width:48px;height:70px;border-radius:6px;text-align:center;line-height:64px;font-size:20px;margin:2px;border:1px #ccc solid;cursor:pointer;user-select:none;}
+.card.selected{background:#ffdd77;transform:translateY(-7px);}
+.area{margin:10px 0;min-height:85px;}
+.log-item{font-size:13px;padding:3px 0;border-bottom:rgba(255,255,255,0.14) 1px solid;}
+#recordBox{max-height:200px;overflow-y:auto;}
+.tip-text{color:#ffdd55;text-align:center;margin:8px;font-size:16px;}
+</style>
+</head>
+<body>
+<div class="container">
+<!--模式选择页-->
+<div id="pageMode" class="page active">
+    <h1>斗地主</h1>
+    <div class="btn-group">
+        <button class="btn" onclick="startGame('normal')">普通斗地主模式</button>
+        <button class="btn" onclick="startGame('gold')">淘金模式</button>
+    </div>
+    <div class="box">
+        <h3>📋 使用记录</h3>
+        <div id="recordBox"></div>
+        <button class="btn" onclick="clearRecord()">清空记录</button>
+    </div>
+</div>
+
+<!--抢地主页面-->
+<div id="pageGrab" class="page">
+    <h1>抢地主阶段</h1>
+    <div class="box">
+        <div class="tip-text" id="grabTip"></div>
+        <div class="btn-group">
+            <button class="btn" id="btnGrab" onclick="grabLandlord(true)">抢地主</button>
+            <button class="btn" id="btnNoGrab" onclick="grabLandlord(false)">不抢</button>
+        </div>
+        <div class="box">
+            <h4>底牌：</h4>
+            <div id="holeCardsBox"></div>
+        </div>
+    </div>
+</div>
+
+<!--游戏出牌页-->
+<div id="pagePlay" class="page">
+    <h1 id="modeTitle"></h1>
+    <div class="box">
+        <div>左边电脑 <span id="leftRole"></span></div>
+        <div class="area" id="leftOut"></div>
+        <div>右边电脑 <span id="rightRole"></span></div>
+        <div class="area" id="rightOut"></div>
+    </div>
+
+    <div class="box">
+        <h3>我的手牌 <span id="myRoleTag"></span></h3>
+        <div id="myCards"></div>
+    </div>
+
+    <div class="box">
+        <h3>出牌区</h3>
+        <div class="area" id="playArea"></div>
+        <div class="btn-group">
+            <button class="btn" onclick="playSubmit()">出牌</button>
+            <button class="btn" onclick="passBtn()">不出</button>
+            <button class="btn" onclick="backToMode()">返回主页</button>
+        </div>
+        <div class="tip-text" id="tip"></div>
+    </div>
+</div>
+</div>
+
+<script>
+//牌权重 3=3 ... A=14,2=15,小王S=16,大王B=17
+const CARD_WEIGHT = {
+    '3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,
+    'J':11,'Q':12,'K':13,'A':14,'2':15,'S':16,'B':17
+};
+const CARD_LIST = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+
+let game = {
+    mode:"normal",
+    hole:[], //底牌3张
+    me:[],left:[],right:[],
+    selected:[],
+    lastPlay:{type:null,cards:[],weight:0},
+    turn:"",
+    landlord:null, // 'me'/'left'/'right'
+    grabIndex:0, //0左AI，1玩家，2右AI
+    over:false
+};
+
+//本地记录
+function loadRecord(){
+    let r = localStorage.getItem("ddz_record");
+    return r ? JSON.parse(r) : [];
+}
+function saveRecord(arr){
+    localStorage.setItem("ddz_record",JSON.stringify(arr));
+}
+function addRecord(text){
+    let arr = loadRecord();
+    arr.unshift({time:new Date().toLocaleString(),msg:text});
+    if(arr.length>30) arr.length=30;
+    saveRecord(arr);
+    renderRecord();
+}
+function renderRecord(){
+    const box = document.getElementById("recordBox");
+    const arr = loadRecord();
+    box.innerHTML = arr.map(x=>`<div class="log-item">[${x.time}] ${x.msg}</div>`).join("");
+}
+function clearRecord(){
+    saveRecord([]);renderRecord();
+}
+
+//洗牌
+function shuffleDeck(){
+    let deck=[];
+    for(let c of CARD_LIST){
+        deck.push(c,c,c,c);
+    }
+    deck.push("S","B");
+    for(let i=deck.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [deck[i],deck[j]] = [deck[j],deck[i]];
+    }
+    return deck;
+}
+
+//手牌排序理牌
+function sortCards(cardArr){
+    return [...cardArr].sort((a,b)=>CARD_WEIGHT[a]-CARD_WEIGHT[b]);
+}
+
+function startGame(mode){
+    game.mode = mode;
+    game.over=false;
+    game.landlord=null;
+    game.grabIndex=0;
+    game.lastPlay={type:null,cards:[],weight:0};
+
+    const deck = shuffleDeck();
+    game.hole = deck.slice(0,3);
+    game.me = deck.slice(3,20);
+    game.left = deck.slice(20,37);
+    game.right = deck.slice(37,54);
+
+    game.me = sortCards(game.me);
+    game.left = sortCards(game.left);
+    game.right = sortCards(game.right);
+    game.selected = [];
+
+    document.getElementById("pageMode").classList.remove("active");
+    document.getElementById("pageGrab").classList.add("active");
+    addRecord(`新一局：${mode==="normal"?"普通斗地主":"淘金模式"}`);
+    renderHole();
+    nextGrab();
+}
+
+function renderHole(){
+    const box = document.getElementById("holeCardsBox");
+    box.innerHTML="";
+    game.hole.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        box.appendChild(d);
+    })
+}
+
+//抢地主流程 0左AI 1玩家 2右AI
+function nextGrab(){
+    const tipDom = document.getElementById("grabTip");
+    game.grabIndex %=3;
+    if(game.grabIndex===0){
+        tipDom.innerText="左边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("left");
+            }else{
+                addRecord("左边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }else if(game.grabIndex===1){
+        tipDom.innerText="轮到你抢地主！";
+        document.getElementById("btnGrab").disabled=false;
+        document.getElementById("btnNoGrab").disabled=false;
+    }else if(game.grabIndex===2){
+        tipDom.innerText="右边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("right");
+            }else{
+                addRecord("右边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }
+}
+
+function grabLandlord(want){
+    document.getElementById("btnGrab").disabled=true;
+    document.getElementById("btnNoGrab").disabled=true;
+    if(want){
+        addRecord("玩家：抢地主");
+        setLandlord("me");
+    }else{
+        addRecord("玩家：不抢地主");
+        game.grabIndex++;
+        nextGrab();
+    }
+}
+
+function setLandlord(who){
+    game.landlord = who;
+    addRecord(`${who==="me"?"玩家":who==="left"?"左边电脑":"右边电脑"}成为地主！`);
+    if(who==="me"){
+        game.me = sortCards([...game.me,...game.hole]);
+    }else if(who==="left"){
+        game.left = sortCards([...game.left,...game.hole]);
+    }else{
+        game.right = sortCards([...game.right,...game.hole]);
+    }
+    //地主先出牌
+    game.turn = who;
+    openPlayPage();
+}
+
+function openPlayPage(){
+    document.getElementById("pageGrab").classList.remove("active");
+    document.getElementById("pagePlay").classList.add("active");
+    document.getElementById("modeTitle").innerText = game.mode==="normal"?"普通斗地主":"淘金模式";
+    document.getElementById("myRoleTag").innerText = game.landlord==="me"?"【地主】":"【农民】";
+    document.getElementById("leftRole").innerText = game.landlord==="left"?"【地主】":"【农民】";
+    document.getElementById("rightRole").innerText = game.landlord==="right"?"【地主】":"【农民】";
+    renderMyCards();
+    renderPlayArea();
+    clearOutAreas();
+    document.getElementById("tip").innerText= game.turn==="me"?"轮到你出牌":"等待电脑出牌";
+    if(game.turn!=="me") robotLoop();
+}
+
+function backToMode(){
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+    document.getElementById("pageMode").classList.add("active");
+}
+
+function renderMyCards(){
+    const dom = document.getElementById("myCards");
+    dom.innerHTML="";
+    game.me.forEach((card,idx)=>{
+        const div = document.createElement("div");
+        div.className = "card "+(game.selected.includes(idx)?"selected":"");
+        div.innerText = card==="S"?"🃏小":card==="B"?"🃏大":card;
+        div.onclick = ()=>{
+            const pos = game.selected.indexOf(idx);
+            if(pos>=0) game.selected.splice(pos,1);
+            else game.selected.push(idx);
+            renderMyCards();
+            renderPlayArea();
+        };
+        dom.appendChild(div);
+    })
+}
+function renderPlayArea(){
+    const area = document.getElementById("playArea");
+    area.innerHTML="";
+    const selCards = game.selected.map(i=>game.me[i]);
+    selCards.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        area.appendChild(d);
+    })
+}
+function clearOutAreas(){
+    document.getElementById("leftOut").innerHTML="";
+    document.getElementById("rightOut").innerHTML="";
+}
+
+//牌型解析
+function getWeights(cards){
+    return cards.map(c=>CARD_WEIGHT[c]);
+}
+function countMap(cards){
+    const m={};
+    cards.forEach(c=>{const w=CARD_WEIGHT[c];m[w]=(m[w]||0)+1;});
+    return m;
+}
+
+function parseCardType(inputCards){
+    const cards = [...inputCards];
+    const weights = getWeights(cards);
+    const map = countMap(cards);
+    const wList = Object.keys(map).map(Number).sort((a,b)=>a-b);
+    const len = cards.length;
+    //王炸
+    if(cards.includes("S")&&cards.includes("B")&&len===2) return {type:"rocket",weight:1000};
+    //炸弹
+    const fourKey = wList.find(w=>map[w]===4);
+    if(fourKey!==undefined&&len===4) return {type:"bomb",weight:fourKey};
+    //单张
+    if(len===1) return {type:"single",weight:weights[0]};
+    //对子
+    if(len===2&&weights[0]===weights[1]) return {type:"pair",weight:weights[0]};
+    //三张
+    if(len===3&&wList.length===1) return {type:"triple",weight:wList[0]};
+    //三带一
+    if(len===4){
+        for(let w of wList) if(map[w]===3) return {type:"triple1",weight:w};
+    }
+    //三带对
+    if(len===5){
+        for(let w of wList) if(map[w]===3) return {type:"triple2",weight:w};
+    }
+    //顺子 >=5，不含2、王
+    function checkStraight(arr){
+        if(arr.some(x=>x>=15)) return null;
+        const s=[...new Set(arr)].sort((a,b)=>a-b);
+        if(s.length!==arr.length) return null;
+        for(let i=1;i<s.length;i++) if(s[i]-s[i-1]!==1) return null;
+        return {type:"straight",weight:s[0]};
+    }
+    if(len>=5){
+        const st = checkStraight(weights);
+        if(st) return st;
+    }
+    //连对 >=3对
+    if(len>=6&&len%2===0){
+        const pairs = wList.filter(w=>map[w]===2).sort((a,b)=>a-b);
+        if(pairs.length>=3){
+            let ok=true;
+            for(let i=1;i<pairs.length;i++){
+                if(pairs[i]>=15||pairs[i]-pairs[i-1]!==1){ok=false;break;}
+            }
+            if(ok) return {type:"doubleStraight",weight:pairs[0]};
+        }
+    }
+    //飞机
+    const triples = wList.filter(w=>map[w]===3).sort((a,b)=>a-b);
+    if(triples.length>=2){
+        let ok=true;
+        for(let i=1;i<triples.length;i++){
+            if(triples[i]>=15||triples[i]-triples[i-1]!==1){ok=false;break;}
+        }
+        if(ok){
+            const n = triples.length;
+            if(len===n*3) return {type:"plane",weight:triples[0]};
+            if(len===n*3+n) return {type:"plane1",weight:triples[0]};
+            if(len===n*3+n*2) return {type:"plane2",weight:triples[0]};
+        }
+    }
+    //四带二
+    if(len===6){
+        for(let w of wList) if(map[w]===4) return {type:"four2",weight:w};
+    }
+    return null;
+}
+
+function isBigger(cur,last){
+    if(!cur) return false;
+    if(cur.type==="rocket") return true;
+    if(cur.type==="bomb"){
+        if(last.type!=="bomb"&&last.type!=="rocket") return true;
+        if(last.type==="bomb") return cur.weight>last.weight;
+    }
+    if(cur.type !== last.type) return false;
+    return cur.weight>last.weight;
+}
+
+function playSubmit(){
+    if(game.over||game.turn!=="me")return;
+    const selIdx = [...game.selected];
+    if(selIdx.length===0){
+        document.getElementById("tip").innerText="请先选择手牌！";return;
+    }
+    const selCards = selIdx.map(i=>game.me[i]);
+    const typeObj = parseCardType(selCards);
+    if(!typeObj){
+        document.getElementById("tip").innerText="❌无效牌型！";return;
+    }
+    if(game.lastPlay.type!==null){
+        if(!isBigger(typeObj,game.lastPlay)){
+            document.getElementById("tip").innerText="❌必须大于上一手牌！";return;
+        }
+    }
+    //出牌，移除手牌
+    selIdx.sort((a,b)=>b-a).forEach(i=>game.me.splice(i,1));
+    game.lastPlay = {...typeObj,cards:selCards};
+    addRecord(`玩家出牌 ${selCards.join(" ")} [${typeObj.type}]`);
+    document.getElementById("tip").innerText="✅出牌成功";
+    game.selected=[];
+    renderMyCards();
+    renderPlayArea();
+    //胜利判定
+    if(game.me.length===0){
+        game.over=true;
+        alert(game.landlord==="me"?"🎉地主胜利！":"🎉农民胜利！");
+        addRecord(game.landlord==="me"?"本局：地主(玩家)胜利":"本局：农民(玩家)胜利");
+        backToMode();
+        return;
+    }
+    game.turn = game.landlord==="me"?"left":"left";
+    robotLoop();
+}
+
+function passBtn(){
+    if(game.over||game.turn!=="me")return;
+    if(game.lastPlay.type===null){
+        document.getElementById("tip").innerText="第一轮不能不出！";return;
+    }
+    addRecord("玩家：不出");
+    game.selected=[];
+    renderMyCards();renderPlayArea();
+    game.turn = "left";
+    robotLoop();
+}
+
+function robotLoop(){
+    if(game.over) return;
+    setTimeout(()=>{
+        if(game.turn==="left"){
+            addRecord("左边电脑：不出");
+            game.turn="right";
+        }else if(game.turn==="right"){
+            addRecord("右边电脑：不出");
+            game.lastPlay={type:null,cards:[],weight:0};
+            game.turn="me";
+        }
+        document.getElementById("tip").innerText = game.turn==="me"?"轮到你出牌":"电脑处理中";
+        if(game.turn!=="me") robotLoop();
+    },1200);
+}
+
+window.onload=()=>{renderRecord();}
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>斗地主完整网页版</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
+body{background:#164024;color:#fff;min-height:100vh;padding:16px;}
+.container{max-width:980px;margin:0 auto;}
+.page{display:none;}
+.page.active{display:block;}
+h1{text-align:center;color:#ffd040;margin:20px 0;}
+.btn{background:#ff8800;color:white;border:none;padding:12px 20px;font-size:16px;border-radius:8px;margin:5px;cursor:pointer;transition:.12s;}
+.btn:hover{background:#ffa333;}
+.btn:active{transform:scale(0.95);}
+.btn-group{text-align:center;margin:18px 0;}
+.box{background:rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin:12px 0;}
+.card{display:inline-block;background:white;color:#111;width:48px;height:70px;border-radius:6px;text-align:center;line-height:64px;font-size:20px;margin:2px;border:1px #ccc solid;cursor:pointer;user-select:none;}
+.card.selected{background:#ffdd77;transform:translateY(-7px);}
+.area{margin:10px 0;min-height:85px;}
+.log-item{font-size:13px;padding:3px 0;border-bottom:rgba(255,255,255,0.14) 1px solid;}
+#recordBox{max-height:200px;overflow-y:auto;}
+.tip-text{color:#ffdd55;text-align:center;margin:8px;font-size:16px;}
+</style>
+</head>
+<body>
+<div class="container">
+<!--模式选择页-->
+<div id="pageMode" class="page active">
+    <h1>斗地主</h1>
+    <div class="btn-group">
+        <button class="btn" onclick="startGame('normal')">普通斗地主模式</button>
+        <button class="btn" onclick="startGame('gold')">淘金模式</button>
+    </div>
+    <div class="box">
+        <h3>📋 使用记录</h3>
+        <div id="recordBox"></div>
+        <button class="btn" onclick="clearRecord()">清空记录</button>
+    </div>
+</div>
+
+<!--抢地主页面-->
+<div id="pageGrab" class="page">
+    <h1>抢地主阶段</h1>
+    <div class="box">
+        <div class="tip-text" id="grabTip"></div>
+        <div class="btn-group">
+            <button class="btn" id="btnGrab" onclick="grabLandlord(true)">抢地主</button>
+            <button class="btn" id="btnNoGrab" onclick="grabLandlord(false)">不抢</button>
+        </div>
+        <div class="box">
+            <h4>底牌：</h4>
+            <div id="holeCardsBox"></div>
+        </div>
+    </div>
+</div>
+
+<!--游戏出牌页-->
+<div id="pagePlay" class="page">
+    <h1 id="modeTitle"></h1>
+    <div class="box">
+        <div>左边电脑 <span id="leftRole"></span></div>
+        <div class="area" id="leftOut"></div>
+        <div>右边电脑 <span id="rightRole"></span></div>
+        <div class="area" id="rightOut"></div>
+    </div>
+
+    <div class="box">
+        <h3>我的手牌 <span id="myRoleTag"></span></h3>
+        <div id="myCards"></div>
+    </div>
+
+    <div class="box">
+        <h3>出牌区</h3>
+        <div class="area" id="playArea"></div>
+        <div class="btn-group">
+            <button class="btn" onclick="playSubmit()">出牌</button>
+            <button class="btn" onclick="passBtn()">不出</button>
+            <button class="btn" onclick="backToMode()">返回主页</button>
+        </div>
+        <div class="tip-text" id="tip"></div>
+    </div>
+</div>
+</div>
+
+<script>
+//牌权重 3=3 ... A=14,2=15,小王S=16,大王B=17
+const CARD_WEIGHT = {
+    '3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,
+    'J':11,'Q':12,'K':13,'A':14,'2':15,'S':16,'B':17
+};
+const CARD_LIST = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+
+let game = {
+    mode:"normal",
+    hole:[], //底牌3张
+    me:[],left:[],right:[],
+    selected:[],
+    lastPlay:{type:null,cards:[],weight:0},
+    turn:"",
+    landlord:null, // 'me'/'left'/'right'
+    grabIndex:0, //0左AI，1玩家，2右AI
+    over:false
+};
+
+//本地记录
+function loadRecord(){
+    let r = localStorage.getItem("ddz_record");
+    return r ? JSON.parse(r) : [];
+}
+function saveRecord(arr){
+    localStorage.setItem("ddz_record",JSON.stringify(arr));
+}
+function addRecord(text){
+    let arr = loadRecord();
+    arr.unshift({time:new Date().toLocaleString(),msg:text});
+    if(arr.length>30) arr.length=30;
+    saveRecord(arr);
+    renderRecord();
+}
+function renderRecord(){
+    const box = document.getElementById("recordBox");
+    const arr = loadRecord();
+    box.innerHTML = arr.map(x=>`<div class="log-item">[${x.time}] ${x.msg}</div>`).join("");
+}
+function clearRecord(){
+    saveRecord([]);renderRecord();
+}
+
+//洗牌
+function shuffleDeck(){
+    let deck=[];
+    for(let c of CARD_LIST){
+        deck.push(c,c,c,c);
+    }
+    deck.push("S","B");
+    for(let i=deck.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [deck[i],deck[j]] = [deck[j],deck[i]];
+    }
+    return deck;
+}
+
+//手牌排序理牌
+function sortCards(cardArr){
+    return [...cardArr].sort((a,b)=>CARD_WEIGHT[a]-CARD_WEIGHT[b]);
+}
+
+function startGame(mode){
+    game.mode = mode;
+    game.over=false;
+    game.landlord=null;
+    game.grabIndex=0;
+    game.lastPlay={type:null,cards:[],weight:0};
+
+    const deck = shuffleDeck();
+    game.hole = deck.slice(0,3);
+    game.me = deck.slice(3,20);
+    game.left = deck.slice(20,37);
+    game.right = deck.slice(37,54);
+
+    game.me = sortCards(game.me);
+    game.left = sortCards(game.left);
+    game.right = sortCards(game.right);
+    game.selected = [];
+
+    document.getElementById("pageMode").classList.remove("active");
+    document.getElementById("pageGrab").classList.add("active");
+    addRecord(`新一局：${mode==="normal"?"普通斗地主":"淘金模式"}`);
+    renderHole();
+    nextGrab();
+}
+
+function renderHole(){
+    const box = document.getElementById("holeCardsBox");
+    box.innerHTML="";
+    game.hole.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        box.appendChild(d);
+    })
+}
+
+//抢地主流程 0左AI 1玩家 2右AI
+function nextGrab(){
+    const tipDom = document.getElementById("grabTip");
+    game.grabIndex %=3;
+    if(game.grabIndex===0){
+        tipDom.innerText="左边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("left");
+            }else{
+                addRecord("左边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }else if(game.grabIndex===1){
+        tipDom.innerText="轮到你抢地主！";
+        document.getElementById("btnGrab").disabled=false;
+        document.getElementById("btnNoGrab").disabled=false;
+    }else if(game.grabIndex===2){
+        tipDom.innerText="右边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("right");
+            }else{
+                addRecord("右边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }
+}
+
+function grabLandlord(want){
+    document.getElementById("btnGrab").disabled=true;
+    document.getElementById("btnNoGrab").disabled=true;
+    if(want){
+        addRecord("玩家：抢地主");
+        setLandlord("me");
+    }else{
+        addRecord("玩家：不抢地主");
+        game.grabIndex++;
+        nextGrab();
+    }
+}
+
+function setLandlord(who){
+    game.landlord = who;
+    addRecord(`${who==="me"?"玩家":who==="left"?"左边电脑":"右边电脑"}成为地主！`);
+    if(who==="me"){
+        game.me = sortCards([...game.me,...game.hole]);
+    }else if(who==="left"){
+        game.left = sortCards([...game.left,...game.hole]);
+    }else{
+        game.right = sortCards([...game.right,...game.hole]);
+    }
+    //地主先出牌
+    game.turn = who;
+    openPlayPage();
+}
+
+function openPlayPage(){
+    document.getElementById("pageGrab").classList.remove("active");
+    document.getElementById("pagePlay").classList.add("active");
+    document.getElementById("modeTitle").innerText = game.mode==="normal"?"普通斗地主":"淘金模式";
+    document.getElementById("myRoleTag").innerText = game.landlord==="me"?"【地主】":"【农民】";
+    document.getElementById("leftRole").innerText = game.landlord==="left"?"【地主】":"【农民】";
+    document.getElementById("rightRole").innerText = game.landlord==="right"?"【地主】":"【农民】";
+    renderMyCards();
+    renderPlayArea();
+    clearOutAreas();
+    document.getElementById("tip").innerText= game.turn==="me"?"轮到你出牌":"等待电脑出牌";
+    if(game.turn!=="me") robotLoop();
+}
+
+function backToMode(){
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+    document.getElementById("pageMode").classList.add("active");
+}
+
+function renderMyCards(){
+    const dom = document.getElementById("myCards");
+    dom.innerHTML="";
+    game.me.forEach((card,idx)=>{
+        const div = document.createElement("div");
+        div.className = "card "+(game.selected.includes(idx)?"selected":"");
+        div.innerText = card==="S"?"🃏小":card==="B"?"🃏大":card;
+        div.onclick = ()=>{
+            const pos = game.selected.indexOf(idx);
+            if(pos>=0) game.selected.splice(pos,1);
+            else game.selected.push(idx);
+            renderMyCards();
+            renderPlayArea();
+        };
+        dom.appendChild(div);
+    })
+}
+function renderPlayArea(){
+    const area = document.getElementById("playArea");
+    area.innerHTML="";
+    const selCards = game.selected.map(i=>game.me[i]);
+    selCards.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        area.appendChild(d);
+    })
+}
+function clearOutAreas(){
+    document.getElementById("leftOut").innerHTML="";
+    document.getElementById("rightOut").innerHTML="";
+}
+
+//牌型解析
+function getWeights(cards){
+    return cards.map(c=>CARD_WEIGHT[c]);
+}
+function countMap(cards){
+    const m={};
+    cards.forEach(c=>{const w=CARD_WEIGHT[c];m[w]=(m[w]||0)+1;});
+    return m;
+}
+
+function parseCardType(inputCards){
+    const cards = [...inputCards];
+    const weights = getWeights(cards);
+    const map = countMap(cards);
+    const wList = Object.keys(map).map(Number).sort((a,b)=>a-b);
+    const len = cards.length;
+    //王炸
+    if(cards.includes("S")&&cards.includes("B")&&len===2) return {type:"rocket",weight:1000};
+    //炸弹
+    const fourKey = wList.find(w=>map[w]===4);
+    if(fourKey!==undefined&&len===4) return {type:"bomb",weight:fourKey};
+    //单张
+    if(len===1) return {type:"single",weight:weights[0]};
+    //对子
+    if(len===2&&weights[0]===weights[1]) return {type:"pair",weight:weights[0]};
+    //三张
+    if(len===3&&wList.length===1) return {type:"triple",weight:wList[0]};
+    //三带一
+    if(len===4){
+        for(let w of wList) if(map[w]===3) return {type:"triple1",weight:w};
+    }
+    //三带对
+    if(len===5){
+        for(let w of wList) if(map[w]===3) return {type:"triple2",weight:w};
+    }
+    //顺子 >=5，不含2、王
+    function checkStraight(arr){
+        if(arr.some(x=>x>=15)) return null;
+        const s=[...new Set(arr)].sort((a,b)=>a-b);
+        if(s.length!==arr.length) return null;
+        for(let i=1;i<s.length;i++) if(s[i]-s[i-1]!==1) return null;
+        return {type:"straight",weight:s[0]};
+    }
+    if(len>=5){
+        const st = checkStraight(weights);
+        if(st) return st;
+    }
+    //连对 >=3对
+    if(len>=6&&len%2===0){
+        const pairs = wList.filter(w=>map[w]===2).sort((a,b)=>a-b);
+        if(pairs.length>=3){
+            let ok=true;
+            for(let i=1;i<pairs.length;i++){
+                if(pairs[i]>=15||pairs[i]-pairs[i-1]!==1){ok=false;break;}
+            }
+            if(ok) return {type:"doubleStraight",weight:pairs[0]};
+        }
+    }
+    //飞机
+    const triples = wList.filter(w=>map[w]===3).sort((a,b)=>a-b);
+    if(triples.length>=2){
+        let ok=true;
+        for(let i=1;i<triples.length;i++){
+            if(triples[i]>=15||triples[i]-triples[i-1]!==1){ok=false;break;}
+        }
+        if(ok){
+            const n = triples.length;
+            if(len===n*3) return {type:"plane",weight:triples[0]};
+            if(len===n*3+n) return {type:"plane1",weight:triples[0]};
+            if(len===n*3+n*2) return {type:"plane2",weight:triples[0]};
+        }
+    }
+    //四带二
+    if(len===6){
+        for(let w of wList) if(map[w]===4) return {type:"four2",weight:w};
+    }
+    return null;
+}
+
+function isBigger(cur,last){
+    if(!cur) return false;
+    if(cur.type==="rocket") return true;
+    if(cur.type==="bomb"){
+        if(last.type!=="bomb"&&last.type!=="rocket") return true;
+        if(last.type==="bomb") return cur.weight>last.weight;
+    }
+    if(cur.type !== last.type) return false;
+    return cur.weight>last.weight;
+}
+
+function playSubmit(){
+    if(game.over||game.turn!=="me")return;
+    const selIdx = [...game.selected];
+    if(selIdx.length===0){
+        document.getElementById("tip").innerText="请先选择手牌！";return;
+    }
+    const selCards = selIdx.map(i=>game.me[i]);
+    const typeObj = parseCardType(selCards);
+    if(!typeObj){
+        document.getElementById("tip").innerText="❌无效牌型！";return;
+    }
+    if(game.lastPlay.type!==null){
+        if(!isBigger(typeObj,game.lastPlay)){
+            document.getElementById("tip").innerText="❌必须大于上一手牌！";return;
+        }
+    }
+    //出牌，移除手牌
+    selIdx.sort((a,b)=>b-a).forEach(i=>game.me.splice(i,1));
+    game.lastPlay = {...typeObj,cards:selCards};
+    addRecord(`玩家出牌 ${selCards.join(" ")} [${typeObj.type}]`);
+    document.getElementById("tip").innerText="✅出牌成功";
+    game.selected=[];
+    renderMyCards();
+    renderPlayArea();
+    //胜利判定
+    if(game.me.length===0){
+        game.over=true;
+        alert(game.landlord==="me"?"🎉地主胜利！":"🎉农民胜利！");
+        addRecord(game.landlord==="me"?"本局：地主(玩家)胜利":"本局：农民(玩家)胜利");
+        backToMode();
+        return;
+    }
+    game.turn = game.landlord==="me"?"left":"left";
+    robotLoop();
+}
+
+function passBtn(){
+    if(game.over||game.turn!=="me")return;
+    if(game.lastPlay.type===null){
+        document.getElementById("tip").innerText="第一轮不能不出！";return;
+    }
+    addRecord("玩家：不出");
+    game.selected=[];
+    renderMyCards();renderPlayArea();
+    game.turn = "left";
+    robotLoop();
+}
+
+function robotLoop(){
+    if(game.over) return;
+    setTimeout(()=>{
+        if(game.turn==="left"){
+            addRecord("左边电脑：不出");
+            game.turn="right";
+        }else if(game.turn==="right"){
+            addRecord("右边电脑：不出");
+            game.lastPlay={type:null,cards:[],weight:0};
+            game.turn="me";
+        }
+        document.getElementById("tip").innerText = game.turn==="me"?"轮到你出牌":"电脑处理中";
+        if(game.turn!=="me") robotLoop();
+    },1200);
+}
+
+window.onload=()=>{renderRecord();}
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>斗地主完整网页版</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
+body{background:#164024;color:#fff;min-height:100vh;padding:16px;}
+.container{max-width:980px;margin:0 auto;}
+.page{display:none;}
+.page.active{display:block;}
+h1{text-align:center;color:#ffd040;margin:20px 0;}
+.btn{background:#ff8800;color:white;border:none;padding:12px 20px;font-size:16px;border-radius:8px;margin:5px;cursor:pointer;transition:.12s;}
+.btn:hover{background:#ffa333;}
+.btn:active{transform:scale(0.95);}
+.btn-group{text-align:center;margin:18px 0;}
+.box{background:rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin:12px 0;}
+.card{display:inline-block;background:white;color:#111;width:48px;height:70px;border-radius:6px;text-align:center;line-height:64px;font-size:20px;margin:2px;border:1px #ccc solid;cursor:pointer;user-select:none;}
+.card.selected{background:#ffdd77;transform:translateY(-7px);}
+.area{margin:10px 0;min-height:85px;}
+.log-item{font-size:13px;padding:3px 0;border-bottom:rgba(255,255,255,0.14) 1px solid;}
+#recordBox{max-height:200px;overflow-y:auto;}
+.tip-text{color:#ffdd55;text-align:center;margin:8px;font-size:16px;}
+</style>
+</head>
+<body>
+<div class="container">
+<!--模式选择页-->
+<div id="pageMode" class="page active">
+    <h1>斗地主</h1>
+    <div class="btn-group">
+        <button class="btn" onclick="startGame('normal')">普通斗地主模式</button>
+        <button class="btn" onclick="startGame('gold')">淘金模式</button>
+    </div>
+    <div class="box">
+        <h3>📋 使用记录</h3>
+        <div id="recordBox"></div>
+        <button class="btn" onclick="clearRecord()">清空记录</button>
+    </div>
+</div>
+
+<!--抢地主页面-->
+<div id="pageGrab" class="page">
+    <h1>抢地主阶段</h1>
+    <div class="box">
+        <div class="tip-text" id="grabTip"></div>
+        <div class="btn-group">
+            <button class="btn" id="btnGrab" onclick="grabLandlord(true)">抢地主</button>
+            <button class="btn" id="btnNoGrab" onclick="grabLandlord(false)">不抢</button>
+        </div>
+        <div class="box">
+            <h4>底牌：</h4>
+            <div id="holeCardsBox"></div>
+        </div>
+    </div>
+</div>
+
+<!--游戏出牌页-->
+<div id="pagePlay" class="page">
+    <h1 id="modeTitle"></h1>
+    <div class="box">
+        <div>左边电脑 <span id="leftRole"></span></div>
+        <div class="area" id="leftOut"></div>
+        <div>右边电脑 <span id="rightRole"></span></div>
+        <div class="area" id="rightOut"></div>
+    </div>
+
+    <div class="box">
+        <h3>我的手牌 <span id="myRoleTag"></span></h3>
+        <div id="myCards"></div>
+    </div>
+
+    <div class="box">
+        <h3>出牌区</h3>
+        <div class="area" id="playArea"></div>
+        <div class="btn-group">
+            <button class="btn" onclick="playSubmit()">出牌</button>
+            <button class="btn" onclick="passBtn()">不出</button>
+            <button class="btn" onclick="backToMode()">返回主页</button>
+        </div>
+        <div class="tip-text" id="tip"></div>
+    </div>
+</div>
+</div>
+
+<script>
+//牌权重 3=3 ... A=14,2=15,小王S=16,大王B=17
+const CARD_WEIGHT = {
+    '3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,
+    'J':11,'Q':12,'K':13,'A':14,'2':15,'S':16,'B':17
+};
+const CARD_LIST = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+
+let game = {
+    mode:"normal",
+    hole:[], //底牌3张
+    me:[],left:[],right:[],
+    selected:[],
+    lastPlay:{type:null,cards:[],weight:0},
+    turn:"",
+    landlord:null, // 'me'/'left'/'right'
+    grabIndex:0, //0左AI，1玩家，2右AI
+    over:false
+};
+
+//本地记录
+function loadRecord(){
+    let r = localStorage.getItem("ddz_record");
+    return r ? JSON.parse(r) : [];
+}
+function saveRecord(arr){
+    localStorage.setItem("ddz_record",JSON.stringify(arr));
+}
+function addRecord(text){
+    let arr = loadRecord();
+    arr.unshift({time:new Date().toLocaleString(),msg:text});
+    if(arr.length>30) arr.length=30;
+    saveRecord(arr);
+    renderRecord();
+}
+function renderRecord(){
+    const box = document.getElementById("recordBox");
+    const arr = loadRecord();
+    box.innerHTML = arr.map(x=>`<div class="log-item">[${x.time}] ${x.msg}</div>`).join("");
+}
+function clearRecord(){
+    saveRecord([]);renderRecord();
+}
+
+//洗牌
+function shuffleDeck(){
+    let deck=[];
+    for(let c of CARD_LIST){
+        deck.push(c,c,c,c);
+    }
+    deck.push("S","B");
+    for(let i=deck.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [deck[i],deck[j]] = [deck[j],deck[i]];
+    }
+    return deck;
+}
+
+//手牌排序理牌
+function sortCards(cardArr){
+    return [...cardArr].sort((a,b)=>CARD_WEIGHT[a]-CARD_WEIGHT[b]);
+}
+
+function startGame(mode){
+    game.mode = mode;
+    game.over=false;
+    game.landlord=null;
+    game.grabIndex=0;
+    game.lastPlay={type:null,cards:[],weight:0};
+
+    const deck = shuffleDeck();
+    game.hole = deck.slice(0,3);
+    game.me = deck.slice(3,20);
+    game.left = deck.slice(20,37);
+    game.right = deck.slice(37,54);
+
+    game.me = sortCards(game.me);
+    game.left = sortCards(game.left);
+    game.right = sortCards(game.right);
+    game.selected = [];
+
+    document.getElementById("pageMode").classList.remove("active");
+    document.getElementById("pageGrab").classList.add("active");
+    addRecord(`新一局：${mode==="normal"?"普通斗地主":"淘金模式"}`);
+    renderHole();
+    nextGrab();
+}
+
+function renderHole(){
+    const box = document.getElementById("holeCardsBox");
+    box.innerHTML="";
+    game.hole.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        box.appendChild(d);
+    })
+}
+
+//抢地主流程 0左AI 1玩家 2右AI
+function nextGrab(){
+    const tipDom = document.getElementById("grabTip");
+    game.grabIndex %=3;
+    if(game.grabIndex===0){
+        tipDom.innerText="左边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("left");
+            }else{
+                addRecord("左边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }else if(game.grabIndex===1){
+        tipDom.innerText="轮到你抢地主！";
+        document.getElementById("btnGrab").disabled=false;
+        document.getElementById("btnNoGrab").disabled=false;
+    }else if(game.grabIndex===2){
+        tipDom.innerText="右边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("right");
+            }else{
+                addRecord("右边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }
+}
+
+function grabLandlord(want){
+    document.getElementById("btnGrab").disabled=true;
+    document.getElementById("btnNoGrab").disabled=true;
+    if(want){
+        addRecord("玩家：抢地主");
+        setLandlord("me");
+    }else{
+        addRecord("玩家：不抢地主");
+        game.grabIndex++;
+        nextGrab();
+    }
+}
+
+function setLandlord(who){
+    game.landlord = who;
+    addRecord(`${who==="me"?"玩家":who==="left"?"左边电脑":"右边电脑"}成为地主！`);
+    if(who==="me"){
+        game.me = sortCards([...game.me,...game.hole]);
+    }else if(who==="left"){
+        game.left = sortCards([...game.left,...game.hole]);
+    }else{
+        game.right = sortCards([...game.right,...game.hole]);
+    }
+    //地主先出牌
+    game.turn = who;
+    openPlayPage();
+}
+
+function openPlayPage(){
+    document.getElementById("pageGrab").classList.remove("active");
+    document.getElementById("pagePlay").classList.add("active");
+    document.getElementById("modeTitle").innerText = game.mode==="normal"?"普通斗地主":"淘金模式";
+    document.getElementById("myRoleTag").innerText = game.landlord==="me"?"【地主】":"【农民】";
+    document.getElementById("leftRole").innerText = game.landlord==="left"?"【地主】":"【农民】";
+    document.getElementById("rightRole").innerText = game.landlord==="right"?"【地主】":"【农民】";
+    renderMyCards();
+    renderPlayArea();
+    clearOutAreas();
+    document.getElementById("tip").innerText= game.turn==="me"?"轮到你出牌":"等待电脑出牌";
+    if(game.turn!=="me") robotLoop();
+}
+
+function backToMode(){
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+    document.getElementById("pageMode").classList.add("active");
+}
+
+function renderMyCards(){
+    const dom = document.getElementById("myCards");
+    dom.innerHTML="";
+    game.me.forEach((card,idx)=>{
+        const div = document.createElement("div");
+        div.className = "card "+(game.selected.includes(idx)?"selected":"");
+        div.innerText = card==="S"?"🃏小":card==="B"?"🃏大":card;
+        div.onclick = ()=>{
+            const pos = game.selected.indexOf(idx);
+            if(pos>=0) game.selected.splice(pos,1);
+            else game.selected.push(idx);
+            renderMyCards();
+            renderPlayArea();
+        };
+        dom.appendChild(div);
+    })
+}
+function renderPlayArea(){
+    const area = document.getElementById("playArea");
+    area.innerHTML="";
+    const selCards = game.selected.map(i=>game.me[i]);
+    selCards.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        area.appendChild(d);
+    })
+}
+function clearOutAreas(){
+    document.getElementById("leftOut").innerHTML="";
+    document.getElementById("rightOut").innerHTML="";
+}
+
+//牌型解析
+function getWeights(cards){
+    return cards.map(c=>CARD_WEIGHT[c]);
+}
+function countMap(cards){
+    const m={};
+    cards.forEach(c=>{const w=CARD_WEIGHT[c];m[w]=(m[w]||0)+1;});
+    return m;
+}
+
+function parseCardType(inputCards){
+    const cards = [...inputCards];
+    const weights = getWeights(cards);
+    const map = countMap(cards);
+    const wList = Object.keys(map).map(Number).sort((a,b)=>a-b);
+    const len = cards.length;
+    //王炸
+    if(cards.includes("S")&&cards.includes("B")&&len===2) return {type:"rocket",weight:1000};
+    //炸弹
+    const fourKey = wList.find(w=>map[w]===4);
+    if(fourKey!==undefined&&len===4) return {type:"bomb",weight:fourKey};
+    //单张
+    if(len===1) return {type:"single",weight:weights[0]};
+    //对子
+    if(len===2&&weights[0]===weights[1]) return {type:"pair",weight:weights[0]};
+    //三张
+    if(len===3&&wList.length===1) return {type:"triple",weight:wList[0]};
+    //三带一
+    if(len===4){
+        for(let w of wList) if(map[w]===3) return {type:"triple1",weight:w};
+    }
+    //三带对
+    if(len===5){
+        for(let w of wList) if(map[w]===3) return {type:"triple2",weight:w};
+    }
+    //顺子 >=5，不含2、王
+    function checkStraight(arr){
+        if(arr.some(x=>x>=15)) return null;
+        const s=[...new Set(arr)].sort((a,b)=>a-b);
+        if(s.length!==arr.length) return null;
+        for(let i=1;i<s.length;i++) if(s[i]-s[i-1]!==1) return null;
+        return {type:"straight",weight:s[0]};
+    }
+    if(len>=5){
+        const st = checkStraight(weights);
+        if(st) return st;
+    }
+    //连对 >=3对
+    if(len>=6&&len%2===0){
+        const pairs = wList.filter(w=>map[w]===2).sort((a,b)=>a-b);
+        if(pairs.length>=3){
+            let ok=true;
+            for(let i=1;i<pairs.length;i++){
+                if(pairs[i]>=15||pairs[i]-pairs[i-1]!==1){ok=false;break;}
+            }
+            if(ok) return {type:"doubleStraight",weight:pairs[0]};
+        }
+    }
+    //飞机
+    const triples = wList.filter(w=>map[w]===3).sort((a,b)=>a-b);
+    if(triples.length>=2){
+        let ok=true;
+        for(let i=1;i<triples.length;i++){
+            if(triples[i]>=15||triples[i]-triples[i-1]!==1){ok=false;break;}
+        }
+        if(ok){
+            const n = triples.length;
+            if(len===n*3) return {type:"plane",weight:triples[0]};
+            if(len===n*3+n) return {type:"plane1",weight:triples[0]};
+            if(len===n*3+n*2) return {type:"plane2",weight:triples[0]};
+        }
+    }
+    //四带二
+    if(len===6){
+        for(let w of wList) if(map[w]===4) return {type:"four2",weight:w};
+    }
+    return null;
+}
+
+function isBigger(cur,last){
+    if(!cur) return false;
+    if(cur.type==="rocket") return true;
+    if(cur.type==="bomb"){
+        if(last.type!=="bomb"&&last.type!=="rocket") return true;
+        if(last.type==="bomb") return cur.weight>last.weight;
+    }
+    if(cur.type !== last.type) return false;
+    return cur.weight>last.weight;
+}
+
+function playSubmit(){
+    if(game.over||game.turn!=="me")return;
+    const selIdx = [...game.selected];
+    if(selIdx.length===0){
+        document.getElementById("tip").innerText="请先选择手牌！";return;
+    }
+    const selCards = selIdx.map(i=>game.me[i]);
+    const typeObj = parseCardType(selCards);
+    if(!typeObj){
+        document.getElementById("tip").innerText="❌无效牌型！";return;
+    }
+    if(game.lastPlay.type!==null){
+        if(!isBigger(typeObj,game.lastPlay)){
+            document.getElementById("tip").innerText="❌必须大于上一手牌！";return;
+        }
+    }
+    //出牌，移除手牌
+    selIdx.sort((a,b)=>b-a).forEach(i=>game.me.splice(i,1));
+    game.lastPlay = {...typeObj,cards:selCards};
+    addRecord(`玩家出牌 ${selCards.join(" ")} [${typeObj.type}]`);
+    document.getElementById("tip").innerText="✅出牌成功";
+    game.selected=[];
+    renderMyCards();
+    renderPlayArea();
+    //胜利判定
+    if(game.me.length===0){
+        game.over=true;
+        alert(game.landlord==="me"?"🎉地主胜利！":"🎉农民胜利！");
+        addRecord(game.landlord==="me"?"本局：地主(玩家)胜利":"本局：农民(玩家)胜利");
+        backToMode();
+        return;
+    }
+    game.turn = game.landlord==="me"?"left":"left";
+    robotLoop();
+}
+
+function passBtn(){
+    if(game.over||game.turn!=="me")return;
+    if(game.lastPlay.type===null){
+        document.getElementById("tip").innerText="第一轮不能不出！";return;
+    }
+    addRecord("玩家：不出");
+    game.selected=[];
+    renderMyCards();renderPlayArea();
+    game.turn = "left";
+    robotLoop();
+}
+
+function robotLoop(){
+    if(game.over) return;
+    setTimeout(()=>{
+        if(game.turn==="left"){
+            addRecord("左边电脑：不出");
+            game.turn="right";
+        }else if(game.turn==="right"){
+            addRecord("右边电脑：不出");
+            game.lastPlay={type:null,cards:[],weight:0};
+            game.turn="me";
+        }
+        document.getElementById("tip").innerText = game.turn==="me"?"轮到你出牌":"电脑处理中";
+        if(game.turn!=="me") robotLoop();
+    },1200);
+}
+
+window.onload=()=>{renderRecord();}
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>斗地主完整网页版</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
+body{background:#164024;color:#fff;min-height:100vh;padding:16px;}
+.container{max-width:980px;margin:0 auto;}
+.page{display:none;}
+.page.active{display:block;}
+h1{text-align:center;color:#ffd040;margin:20px 0;}
+.btn{background:#ff8800;color:white;border:none;padding:12px 20px;font-size:16px;border-radius:8px;margin:5px;cursor:pointer;transition:.12s;}
+.btn:hover{background:#ffa333;}
+.btn:active{transform:scale(0.95);}
+.btn-group{text-align:center;margin:18px 0;}
+.box{background:rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin:12px 0;}
+.card{display:inline-block;background:white;color:#111;width:48px;height:70px;border-radius:6px;text-align:center;line-height:64px;font-size:20px;margin:2px;border:1px #ccc solid;cursor:pointer;user-select:none;}
+.card.selected{background:#ffdd77;transform:translateY(-7px);}
+.area{margin:10px 0;min-height:85px;}
+.log-item{font-size:13px;padding:3px 0;border-bottom:rgba(255,255,255,0.14) 1px solid;}
+#recordBox{max-height:200px;overflow-y:auto;}
+.tip-text{color:#ffdd55;text-align:center;margin:8px;font-size:16px;}
+</style>
+</head>
+<body>
+<div class="container">
+<!--模式选择页-->
+<div id="pageMode" class="page active">
+    <h1>斗地主</h1>
+    <div class="btn-group">
+        <button class="btn" onclick="startGame('normal')">普通斗地主模式</button>
+        <button class="btn" onclick="startGame('gold')">淘金模式</button>
+    </div>
+    <div class="box">
+        <h3>📋 使用记录</h3>
+        <div id="recordBox"></div>
+        <button class="btn" onclick="clearRecord()">清空记录</button>
+    </div>
+</div>
+
+<!--抢地主页面-->
+<div id="pageGrab" class="page">
+    <h1>抢地主阶段</h1>
+    <div class="box">
+        <div class="tip-text" id="grabTip"></div>
+        <div class="btn-group">
+            <button class="btn" id="btnGrab" onclick="grabLandlord(true)">抢地主</button>
+            <button class="btn" id="btnNoGrab" onclick="grabLandlord(false)">不抢</button>
+        </div>
+        <div class="box">
+            <h4>底牌：</h4>
+            <div id="holeCardsBox"></div>
+        </div>
+    </div>
+</div>
+
+<!--游戏出牌页-->
+<div id="pagePlay" class="page">
+    <h1 id="modeTitle"></h1>
+    <div class="box">
+        <div>左边电脑 <span id="leftRole"></span></div>
+        <div class="area" id="leftOut"></div>
+        <div>右边电脑 <span id="rightRole"></span></div>
+        <div class="area" id="rightOut"></div>
+    </div>
+
+    <div class="box">
+        <h3>我的手牌 <span id="myRoleTag"></span></h3>
+        <div id="myCards"></div>
+    </div>
+
+    <div class="box">
+        <h3>出牌区</h3>
+        <div class="area" id="playArea"></div>
+        <div class="btn-group">
+            <button class="btn" onclick="playSubmit()">出牌</button>
+            <button class="btn" onclick="passBtn()">不出</button>
+            <button class="btn" onclick="backToMode()">返回主页</button>
+        </div>
+        <div class="tip-text" id="tip"></div>
+    </div>
+</div>
+</div>
+
+<script>
+//牌权重 3=3 ... A=14,2=15,小王S=16,大王B=17
+const CARD_WEIGHT = {
+    '3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,
+    'J':11,'Q':12,'K':13,'A':14,'2':15,'S':16,'B':17
+};
+const CARD_LIST = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+
+let game = {
+    mode:"normal",
+    hole:[], //底牌3张
+    me:[],left:[],right:[],
+    selected:[],
+    lastPlay:{type:null,cards:[],weight:0},
+    turn:"",
+    landlord:null, // 'me'/'left'/'right'
+    grabIndex:0, //0左AI，1玩家，2右AI
+    over:false
+};
+
+//本地记录
+function loadRecord(){
+    let r = localStorage.getItem("ddz_record");
+    return r ? JSON.parse(r) : [];
+}
+function saveRecord(arr){
+    localStorage.setItem("ddz_record",JSON.stringify(arr));
+}
+function addRecord(text){
+    let arr = loadRecord();
+    arr.unshift({time:new Date().toLocaleString(),msg:text});
+    if(arr.length>30) arr.length=30;
+    saveRecord(arr);
+    renderRecord();
+}
+function renderRecord(){
+    const box = document.getElementById("recordBox");
+    const arr = loadRecord();
+    box.innerHTML = arr.map(x=>`<div class="log-item">[${x.time}] ${x.msg}</div>`).join("");
+}
+function clearRecord(){
+    saveRecord([]);renderRecord();
+}
+
+//洗牌
+function shuffleDeck(){
+    let deck=[];
+    for(let c of CARD_LIST){
+        deck.push(c,c,c,c);
+    }
+    deck.push("S","B");
+    for(let i=deck.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [deck[i],deck[j]] = [deck[j],deck[i]];
+    }
+    return deck;
+}
+
+//手牌排序理牌
+function sortCards(cardArr){
+    return [...cardArr].sort((a,b)=>CARD_WEIGHT[a]-CARD_WEIGHT[b]);
+}
+
+function startGame(mode){
+    game.mode = mode;
+    game.over=false;
+    game.landlord=null;
+    game.grabIndex=0;
+    game.lastPlay={type:null,cards:[],weight:0};
+
+    const deck = shuffleDeck();
+    game.hole = deck.slice(0,3);
+    game.me = deck.slice(3,20);
+    game.left = deck.slice(20,37);
+    game.right = deck.slice(37,54);
+
+    game.me = sortCards(game.me);
+    game.left = sortCards(game.left);
+    game.right = sortCards(game.right);
+    game.selected = [];
+
+    document.getElementById("pageMode").classList.remove("active");
+    document.getElementById("pageGrab").classList.add("active");
+    addRecord(`新一局：${mode==="normal"?"普通斗地主":"淘金模式"}`);
+    renderHole();
+    nextGrab();
+}
+
+function renderHole(){
+    const box = document.getElementById("holeCardsBox");
+    box.innerHTML="";
+    game.hole.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        box.appendChild(d);
+    })
+}
+
+//抢地主流程 0左AI 1玩家 2右AI
+function nextGrab(){
+    const tipDom = document.getElementById("grabTip");
+    game.grabIndex %=3;
+    if(game.grabIndex===0){
+        tipDom.innerText="左边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("left");
+            }else{
+                addRecord("左边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }else if(game.grabIndex===1){
+        tipDom.innerText="轮到你抢地主！";
+        document.getElementById("btnGrab").disabled=false;
+        document.getElementById("btnNoGrab").disabled=false;
+    }else if(game.grabIndex===2){
+        tipDom.innerText="右边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("right");
+            }else{
+                addRecord("右边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }
+}
+
+function grabLandlord(want){
+    document.getElementById("btnGrab").disabled=true;
+    document.getElementById("btnNoGrab").disabled=true;
+    if(want){
+        addRecord("玩家：抢地主");
+        setLandlord("me");
+    }else{
+        addRecord("玩家：不抢地主");
+        game.grabIndex++;
+        nextGrab();
+    }
+}
+
+function setLandlord(who){
+    game.landlord = who;
+    addRecord(`${who==="me"?"玩家":who==="left"?"左边电脑":"右边电脑"}成为地主！`);
+    if(who==="me"){
+        game.me = sortCards([...game.me,...game.hole]);
+    }else if(who==="left"){
+        game.left = sortCards([...game.left,...game.hole]);
+    }else{
+        game.right = sortCards([...game.right,...game.hole]);
+    }
+    //地主先出牌
+    game.turn = who;
+    openPlayPage();
+}
+
+function openPlayPage(){
+    document.getElementById("pageGrab").classList.remove("active");
+    document.getElementById("pagePlay").classList.add("active");
+    document.getElementById("modeTitle").innerText = game.mode==="normal"?"普通斗地主":"淘金模式";
+    document.getElementById("myRoleTag").innerText = game.landlord==="me"?"【地主】":"【农民】";
+    document.getElementById("leftRole").innerText = game.landlord==="left"?"【地主】":"【农民】";
+    document.getElementById("rightRole").innerText = game.landlord==="right"?"【地主】":"【农民】";
+    renderMyCards();
+    renderPlayArea();
+    clearOutAreas();
+    document.getElementById("tip").innerText= game.turn==="me"?"轮到你出牌":"等待电脑出牌";
+    if(game.turn!=="me") robotLoop();
+}
+
+function backToMode(){
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+    document.getElementById("pageMode").classList.add("active");
+}
+
+function renderMyCards(){
+    const dom = document.getElementById("myCards");
+    dom.innerHTML="";
+    game.me.forEach((card,idx)=>{
+        const div = document.createElement("div");
+        div.className = "card "+(game.selected.includes(idx)?"selected":"");
+        div.innerText = card==="S"?"🃏小":card==="B"?"🃏大":card;
+        div.onclick = ()=>{
+            const pos = game.selected.indexOf(idx);
+            if(pos>=0) game.selected.splice(pos,1);
+            else game.selected.push(idx);
+            renderMyCards();
+            renderPlayArea();
+        };
+        dom.appendChild(div);
+    })
+}
+function renderPlayArea(){
+    const area = document.getElementById("playArea");
+    area.innerHTML="";
+    const selCards = game.selected.map(i=>game.me[i]);
+    selCards.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        area.appendChild(d);
+    })
+}
+function clearOutAreas(){
+    document.getElementById("leftOut").innerHTML="";
+    document.getElementById("rightOut").innerHTML="";
+}
+
+//牌型解析
+function getWeights(cards){
+    return cards.map(c=>CARD_WEIGHT[c]);
+}
+function countMap(cards){
+    const m={};
+    cards.forEach(c=>{const w=CARD_WEIGHT[c];m[w]=(m[w]||0)+1;});
+    return m;
+}
+
+function parseCardType(inputCards){
+    const cards = [...inputCards];
+    const weights = getWeights(cards);
+    const map = countMap(cards);
+    const wList = Object.keys(map).map(Number).sort((a,b)=>a-b);
+    const len = cards.length;
+    //王炸
+    if(cards.includes("S")&&cards.includes("B")&&len===2) return {type:"rocket",weight:1000};
+    //炸弹
+    const fourKey = wList.find(w=>map[w]===4);
+    if(fourKey!==undefined&&len===4) return {type:"bomb",weight:fourKey};
+    //单张
+    if(len===1) return {type:"single",weight:weights[0]};
+    //对子
+    if(len===2&&weights[0]===weights[1]) return {type:"pair",weight:weights[0]};
+    //三张
+    if(len===3&&wList.length===1) return {type:"triple",weight:wList[0]};
+    //三带一
+    if(len===4){
+        for(let w of wList) if(map[w]===3) return {type:"triple1",weight:w};
+    }
+    //三带对
+    if(len===5){
+        for(let w of wList) if(map[w]===3) return {type:"triple2",weight:w};
+    }
+    //顺子 >=5，不含2、王
+    function checkStraight(arr){
+        if(arr.some(x=>x>=15)) return null;
+        const s=[...new Set(arr)].sort((a,b)=>a-b);
+        if(s.length!==arr.length) return null;
+        for(let i=1;i<s.length;i++) if(s[i]-s[i-1]!==1) return null;
+        return {type:"straight",weight:s[0]};
+    }
+    if(len>=5){
+        const st = checkStraight(weights);
+        if(st) return st;
+    }
+    //连对 >=3对
+    if(len>=6&&len%2===0){
+        const pairs = wList.filter(w=>map[w]===2).sort((a,b)=>a-b);
+        if(pairs.length>=3){
+            let ok=true;
+            for(let i=1;i<pairs.length;i++){
+                if(pairs[i]>=15||pairs[i]-pairs[i-1]!==1){ok=false;break;}
+            }
+            if(ok) return {type:"doubleStraight",weight:pairs[0]};
+        }
+    }
+    //飞机
+    const triples = wList.filter(w=>map[w]===3).sort((a,b)=>a-b);
+    if(triples.length>=2){
+        let ok=true;
+        for(let i=1;i<triples.length;i++){
+            if(triples[i]>=15||triples[i]-triples[i-1]!==1){ok=false;break;}
+        }
+        if(ok){
+            const n = triples.length;
+            if(len===n*3) return {type:"plane",weight:triples[0]};
+            if(len===n*3+n) return {type:"plane1",weight:triples[0]};
+            if(len===n*3+n*2) return {type:"plane2",weight:triples[0]};
+        }
+    }
+    //四带二
+    if(len===6){
+        for(let w of wList) if(map[w]===4) return {type:"four2",weight:w};
+    }
+    return null;
+}
+
+function isBigger(cur,last){
+    if(!cur) return false;
+    if(cur.type==="rocket") return true;
+    if(cur.type==="bomb"){
+        if(last.type!=="bomb"&&last.type!=="rocket") return true;
+        if(last.type==="bomb") return cur.weight>last.weight;
+    }
+    if(cur.type !== last.type) return false;
+    return cur.weight>last.weight;
+}
+
+function playSubmit(){
+    if(game.over||game.turn!=="me")return;
+    const selIdx = [...game.selected];
+    if(selIdx.length===0){
+        document.getElementById("tip").innerText="请先选择手牌！";return;
+    }
+    const selCards = selIdx.map(i=>game.me[i]);
+    const typeObj = parseCardType(selCards);
+    if(!typeObj){
+        document.getElementById("tip").innerText="❌无效牌型！";return;
+    }
+    if(game.lastPlay.type!==null){
+        if(!isBigger(typeObj,game.lastPlay)){
+            document.getElementById("tip").innerText="❌必须大于上一手牌！";return;
+        }
+    }
+    //出牌，移除手牌
+    selIdx.sort((a,b)=>b-a).forEach(i=>game.me.splice(i,1));
+    game.lastPlay = {...typeObj,cards:selCards};
+    addRecord(`玩家出牌 ${selCards.join(" ")} [${typeObj.type}]`);
+    document.getElementById("tip").innerText="✅出牌成功";
+    game.selected=[];
+    renderMyCards();
+    renderPlayArea();
+    //胜利判定
+    if(game.me.length===0){
+        game.over=true;
+        alert(game.landlord==="me"?"🎉地主胜利！":"🎉农民胜利！");
+        addRecord(game.landlord==="me"?"本局：地主(玩家)胜利":"本局：农民(玩家)胜利");
+        backToMode();
+        return;
+    }
+    game.turn = game.landlord==="me"?"left":"left";
+    robotLoop();
+}
+
+function passBtn(){
+    if(game.over||game.turn!=="me")return;
+    if(game.lastPlay.type===null){
+        document.getElementById("tip").innerText="第一轮不能不出！";return;
+    }
+    addRecord("玩家：不出");
+    game.selected=[];
+    renderMyCards();renderPlayArea();
+    game.turn = "left";
+    robotLoop();
+}
+
+function robotLoop(){
+    if(game.over) return;
+    setTimeout(()=>{
+        if(game.turn==="left"){
+            addRecord("左边电脑：不出");
+            game.turn="right";
+        }else if(game.turn==="right"){
+            addRecord("右边电脑：不出");
+            game.lastPlay={type:null,cards:[],weight:0};
+            game.turn="me";
+        }
+        document.getElementById("tip").innerText = game.turn==="me"?"轮到你出牌":"电脑处理中";
+        if(game.turn!=="me") robotLoop();
+    },1200);
+}
+
+window.onload=()=>{renderRecord();}
+</script>
+</body>
+</html>
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>斗地主完整网页版</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui, sans-serif;}
+body{background:#164024;color:#fff;min-height:100vh;padding:16px;}
+.container{max-width:980px;margin:0 auto;}
+.page{display:none;}
+.page.active{display:block;}
+h1{text-align:center;color:#ffd040;margin:20px 0;}
+.btn{background:#ff8800;color:white;border:none;padding:12px 20px;font-size:16px;border-radius:8px;margin:5px;cursor:pointer;transition:.12s;}
+.btn:hover{background:#ffa333;}
+.btn:active{transform:scale(0.95);}
+.btn-group{text-align:center;margin:18px 0;}
+.box{background:rgba(255,255,255,0.08);border-radius:12px;padding:16px;margin:12px 0;}
+.card{display:inline-block;background:white;color:#111;width:48px;height:70px;border-radius:6px;text-align:center;line-height:64px;font-size:20px;margin:2px;border:1px #ccc solid;cursor:pointer;user-select:none;}
+.card.selected{background:#ffdd77;transform:translateY(-7px);}
+.area{margin:10px 0;min-height:85px;}
+.log-item{font-size:13px;padding:3px 0;border-bottom:rgba(255,255,255,0.14) 1px solid;}
+#recordBox{max-height:200px;overflow-y:auto;}
+.tip-text{color:#ffdd55;text-align:center;margin:8px;font-size:16px;}
+</style>
+</head>
+<body>
+<div class="container">
+<!--模式选择页-->
+<div id="pageMode" class="page active">
+    <h1>斗地主</h1>
+    <div class="btn-group">
+        <button class="btn" onclick="startGame('normal')">普通斗地主模式</button>
+        <button class="btn" onclick="startGame('gold')">淘金模式</button>
+    </div>
+    <div class="box">
+        <h3>📋 使用记录</h3>
+        <div id="recordBox"></div>
+        <button class="btn" onclick="clearRecord()">清空记录</button>
+    </div>
+</div>
+
+<!--抢地主页面-->
+<div id="pageGrab" class="page">
+    <h1>抢地主阶段</h1>
+    <div class="box">
+        <div class="tip-text" id="grabTip"></div>
+        <div class="btn-group">
+            <button class="btn" id="btnGrab" onclick="grabLandlord(true)">抢地主</button>
+            <button class="btn" id="btnNoGrab" onclick="grabLandlord(false)">不抢</button>
+        </div>
+        <div class="box">
+            <h4>底牌：</h4>
+            <div id="holeCardsBox"></div>
+        </div>
+    </div>
+</div>
+
+<!--游戏出牌页-->
+<div id="pagePlay" class="page">
+    <h1 id="modeTitle"></h1>
+    <div class="box">
+        <div>左边电脑 <span id="leftRole"></span></div>
+        <div class="area" id="leftOut"></div>
+        <div>右边电脑 <span id="rightRole"></span></div>
+        <div class="area" id="rightOut"></div>
+    </div>
+
+    <div class="box">
+        <h3>我的手牌 <span id="myRoleTag"></span></h3>
+        <div id="myCards"></div>
+    </div>
+
+    <div class="box">
+        <h3>出牌区</h3>
+        <div class="area" id="playArea"></div>
+        <div class="btn-group">
+            <button class="btn" onclick="playSubmit()">出牌</button>
+            <button class="btn" onclick="passBtn()">不出</button>
+            <button class="btn" onclick="backToMode()">返回主页</button>
+        </div>
+        <div class="tip-text" id="tip"></div>
+    </div>
+</div>
+</div>
+
+<script>
+//牌权重 3=3 ... A=14,2=15,小王S=16,大王B=17
+const CARD_WEIGHT = {
+    '3':3,'4':4,'5':5,'6':6,'7':7,'8':8,'9':9,'10':10,
+    'J':11,'Q':12,'K':13,'A':14,'2':15,'S':16,'B':17
+};
+const CARD_LIST = ['3','4','5','6','7','8','9','10','J','Q','K','A','2'];
+
+let game = {
+    mode:"normal",
+    hole:[], //底牌3张
+    me:[],left:[],right:[],
+    selected:[],
+    lastPlay:{type:null,cards:[],weight:0},
+    turn:"",
+    landlord:null, // 'me'/'left'/'right'
+    grabIndex:0, //0左AI，1玩家，2右AI
+    over:false
+};
+
+//本地记录
+function loadRecord(){
+    let r = localStorage.getItem("ddz_record");
+    return r ? JSON.parse(r) : [];
+}
+function saveRecord(arr){
+    localStorage.setItem("ddz_record",JSON.stringify(arr));
+}
+function addRecord(text){
+    let arr = loadRecord();
+    arr.unshift({time:new Date().toLocaleString(),msg:text});
+    if(arr.length>30) arr.length=30;
+    saveRecord(arr);
+    renderRecord();
+}
+function renderRecord(){
+    const box = document.getElementById("recordBox");
+    const arr = loadRecord();
+    box.innerHTML = arr.map(x=>`<div class="log-item">[${x.time}] ${x.msg}</div>`).join("");
+}
+function clearRecord(){
+    saveRecord([]);renderRecord();
+}
+
+//洗牌
+function shuffleDeck(){
+    let deck=[];
+    for(let c of CARD_LIST){
+        deck.push(c,c,c,c);
+    }
+    deck.push("S","B");
+    for(let i=deck.length-1;i>0;i--){
+        const j = Math.floor(Math.random()*(i+1));
+        [deck[i],deck[j]] = [deck[j],deck[i]];
+    }
+    return deck;
+}
+
+//手牌排序理牌
+function sortCards(cardArr){
+    return [...cardArr].sort((a,b)=>CARD_WEIGHT[a]-CARD_WEIGHT[b]);
+}
+
+function startGame(mode){
+    game.mode = mode;
+    game.over=false;
+    game.landlord=null;
+    game.grabIndex=0;
+    game.lastPlay={type:null,cards:[],weight:0};
+
+    const deck = shuffleDeck();
+    game.hole = deck.slice(0,3);
+    game.me = deck.slice(3,20);
+    game.left = deck.slice(20,37);
+    game.right = deck.slice(37,54);
+
+    game.me = sortCards(game.me);
+    game.left = sortCards(game.left);
+    game.right = sortCards(game.right);
+    game.selected = [];
+
+    document.getElementById("pageMode").classList.remove("active");
+    document.getElementById("pageGrab").classList.add("active");
+    addRecord(`新一局：${mode==="normal"?"普通斗地主":"淘金模式"}`);
+    renderHole();
+    nextGrab();
+}
+
+function renderHole(){
+    const box = document.getElementById("holeCardsBox");
+    box.innerHTML="";
+    game.hole.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        box.appendChild(d);
+    })
+}
+
+//抢地主流程 0左AI 1玩家 2右AI
+function nextGrab(){
+    const tipDom = document.getElementById("grabTip");
+    game.grabIndex %=3;
+    if(game.grabIndex===0){
+        tipDom.innerText="左边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("left");
+            }else{
+                addRecord("左边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }else if(game.grabIndex===1){
+        tipDom.innerText="轮到你抢地主！";
+        document.getElementById("btnGrab").disabled=false;
+        document.getElementById("btnNoGrab").disabled=false;
+    }else if(game.grabIndex===2){
+        tipDom.innerText="右边电脑正在选择抢地主……";
+        document.getElementById("btnGrab").disabled=true;
+        document.getElementById("btnNoGrab").disabled=true;
+        setTimeout(()=>{
+            const aiWant = Math.random()>0.65;
+            if(aiWant){
+                setLandlord("right");
+            }else{
+                addRecord("右边电脑：不抢地主");
+                game.grabIndex++;
+                nextGrab();
+            }
+        },1100);
+    }
+}
+
+function grabLandlord(want){
+    document.getElementById("btnGrab").disabled=true;
+    document.getElementById("btnNoGrab").disabled=true;
+    if(want){
+        addRecord("玩家：抢地主");
+        setLandlord("me");
+    }else{
+        addRecord("玩家：不抢地主");
+        game.grabIndex++;
+        nextGrab();
+    }
+}
+
+function setLandlord(who){
+    game.landlord = who;
+    addRecord(`${who==="me"?"玩家":who==="left"?"左边电脑":"右边电脑"}成为地主！`);
+    if(who==="me"){
+        game.me = sortCards([...game.me,...game.hole]);
+    }else if(who==="left"){
+        game.left = sortCards([...game.left,...game.hole]);
+    }else{
+        game.right = sortCards([...game.right,...game.hole]);
+    }
+    //地主先出牌
+    game.turn = who;
+    openPlayPage();
+}
+
+function openPlayPage(){
+    document.getElementById("pageGrab").classList.remove("active");
+    document.getElementById("pagePlay").classList.add("active");
+    document.getElementById("modeTitle").innerText = game.mode==="normal"?"普通斗地主":"淘金模式";
+    document.getElementById("myRoleTag").innerText = game.landlord==="me"?"【地主】":"【农民】";
+    document.getElementById("leftRole").innerText = game.landlord==="left"?"【地主】":"【农民】";
+    document.getElementById("rightRole").innerText = game.landlord==="right"?"【地主】":"【农民】";
+    renderMyCards();
+    renderPlayArea();
+    clearOutAreas();
+    document.getElementById("tip").innerText= game.turn==="me"?"轮到你出牌":"等待电脑出牌";
+    if(game.turn!=="me") robotLoop();
+}
+
+function backToMode(){
+    document.querySelectorAll(".page").forEach(p=>p.classList.remove("active"));
+    document.getElementById("pageMode").classList.add("active");
+}
+
+function renderMyCards(){
+    const dom = document.getElementById("myCards");
+    dom.innerHTML="";
+    game.me.forEach((card,idx)=>{
+        const div = document.createElement("div");
+        div.className = "card "+(game.selected.includes(idx)?"selected":"");
+        div.innerText = card==="S"?"🃏小":card==="B"?"🃏大":card;
+        div.onclick = ()=>{
+            const pos = game.selected.indexOf(idx);
+            if(pos>=0) game.selected.splice(pos,1);
+            else game.selected.push(idx);
+            renderMyCards();
+            renderPlayArea();
+        };
+        dom.appendChild(div);
+    })
+}
+function renderPlayArea(){
+    const area = document.getElementById("playArea");
+    area.innerHTML="";
+    const selCards = game.selected.map(i=>game.me[i]);
+    selCards.forEach(c=>{
+        const d=document.createElement("div");
+        d.className="card";
+        d.innerText = c==="S"?"🃏小":c==="B"?"🃏大":c;
+        area.appendChild(d);
+    })
+}
+function clearOutAreas(){
+    document.getElementById("leftOut").innerHTML="";
+    document.getElementById("rightOut").innerHTML="";
+}
+
+//牌型解析
+function getWeights(cards){
+    return cards.map(c=>CARD_WEIGHT[c]);
+}
+function countMap(cards){
+    const m={};
+    cards.forEach(c=>{const w=CARD_WEIGHT[c];m[w]=(m[w]||0)+1;});
+    return m;
+}
+
+function parseCardType(inputCards){
+    const cards = [...inputCards];
+    const weights = getWeights(cards);
+    const map = countMap(cards);
+    const wList = Object.keys(map).map(Number).sort((a,b)=>a-b);
+    const len = cards.length;
+    //王炸
+    if(cards.includes("S")&&cards.includes("B")&&len===2) return {type:"rocket",weight:1000};
+    //炸弹
+    const fourKey = wList.find(w=>map[w]===4);
+    if(fourKey!==undefined&&len===4) return {type:"bomb",weight:fourKey};
+    //单张
+    if(len===1) return {type:"single",weight:weights[0]};
+    //对子
+    if(len===2&&weights[0]===weights[1]) return {type:"pair",weight:weights[0]};
+    //三张
+    if(len===3&&wList.length===1) return {type:"triple",weight:wList[0]};
+    //三带一
+    if(len===4){
+        for(let w of wList) if(map[w]===3) return {type:"triple1",weight:w};
+    }
+    //三带对
+    if(len===5){
+        for(let w of wList) if(map[w]===3) return {type:"triple2",weight:w};
+    }
+    //顺子 >=5，不含2、王
+    function checkStraight(arr){
+        if(arr.some(x=>x>=15)) return null;
+        const s=[...new Set(arr)].sort((a,b)=>a-b);
+        if(s.length!==arr.length) return null;
+        for(let i=1;i<s.length;i++) if(s[i]-s[i-1]!==1) return null;
+        return {type:"straight",weight:s[0]};
+    }
+    if(len>=5){
+        const st = checkStraight(weights);
+        if(st) return st;
+    }
+    //连对 >=3对
+    if(len>=6&&len%2===0){
+        const pairs = wList.filter(w=>map[w]===2).sort((a,b)=>a-b);
+        if(pairs.length>=3){
+            let ok=true;
+            for(let i=1;i<pairs.length;i++){
+                if(pairs[i]>=15||pairs[i]-pairs[i-1]!==1){ok=false;break;}
+            }
+            if(ok) return {type:"doubleStraight",weight:pairs[0]};
+        }
+    }
+    //飞机
+    const triples = wList.filter(w=>map[w]===3).sort((a,b)=>a-b);
+    if(triples.length>=2){
+        let ok=true;
+        for(let i=1;i<triples.length;i++){
+            if(triples[i]>=15||triples[i]-triples[i-1]!==1){ok=false;break;}
+        }
+        if(ok){
+            const n = triples.length;
+            if(len===n*3) return {type:"plane",weight:triples[0]};
+            if(len===n*3+n) return {type:"plane1",weight:triples[0]};
+            if(len===n*3+n*2) return {type:"plane2",weight:triples[0]};
+        }
+    }
+    //四带二
+    if(len===6){
+        for(let w of wList) if(map[w]===4) return {type:"four2",weight:w};
+    }
+    return null;
+}
+
+function isBigger(cur,last){
+    if(!cur) return false;
+    if(cur.type==="rocket") return true;
+    if(cur.type==="bomb"){
+        if(last.type!=="bomb"&&last.type!=="rocket") return true;
+        if(last.type==="bomb") return cur.weight>last.weight;
+    }
+    if(cur.type !== last.type) return false;
+    return cur.weight>last.weight;
+}
+
+function playSubmit(){
+    if(game.over||game.turn!=="me")return;
+    const selIdx = [...game.selected];
+    if(selIdx.length===0){
+        document.getElementById("tip").innerText="请先选择手牌！";return;
+    }
+    const selCards = selIdx.map(i=>game.me[i]);
+    const typeObj = parseCardType(selCards);
+    if(!typeObj){
+        document.getElementById("tip").innerText="❌无效牌型！";return;
+    }
+    if(game.lastPlay.type!==null){
+        if(!isBigger(typeObj,game.lastPlay)){
+            document.getElementById("tip").innerText="❌必须大于上一手牌！";return;
+        }
+    }
+    //出牌，移除手牌
+    selIdx.sort((a,b)=>b-a).forEach(i=>game.me.splice(i,1));
+    game.lastPlay = {...typeObj,cards:selCards};
+    addRecord(`玩家出牌 ${selCards.join(" ")} [${typeObj.type}]`);
+    document.getElementById("tip").innerText="✅出牌成功";
+    game.selected=[];
+    renderMyCards();
+    renderPlayArea();
+    //胜利判定
+    if(game.me.length===0){
+        game.over=true;
+        alert(game.landlord==="me"?"🎉地主胜利！":"🎉农民胜利！");
+        addRecord(game.landlord==="me"?"本局：地主(玩家)胜利":"本局：农民(玩家)胜利");
+        backToMode();
+        return;
+    }
+    game.turn = game.landlord==="me"?"left":"left";
+    robotLoop();
+}
+
+function passBtn(){
+    if(game.over||game.turn!=="me")return;
+    if(game.lastPlay.type===null){
+        document.getElementById("tip").innerText="第一轮不能不出！";return;
+    }
+    addRecord("玩家：不出");
+    game.selected=[];
+    renderMyCards();renderPlayArea();
+    game.turn = "left";
+    robotLoop();
+}
+
+function robotLoop(){
+    if(game.over) return;
+    setTimeout(()=>{
+        if(game.turn==="left"){
+            addRecord("左边电脑：不出");
+            game.turn="right";
+        }else if(game.turn==="right"){
+            addRecord("右边电脑：不出");
+            game.lastPlay={type:null,cards:[],weight:0};
+            game.turn="me";
+        }
+        document.getElementById("tip").innerText = game.turn==="me"?"轮到你出牌":"电脑处理中";
+        if(game.turn!=="me") robotLoop();
+    },1200);
+}
+
+window.onload=()=>{renderRecord();}
+</script>
+</body>
+</html>
