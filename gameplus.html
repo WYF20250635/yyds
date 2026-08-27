@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="zh‑CN">
+<head>
+<meta charset="UTF‑8">
+<meta name="viewport" content="width=device‑width, initial‑scale=1.0, maximum‑scale=1.0, user‑scalable=no">
+<title>2D荒野生存</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui}
+body{background:#111;color:#fff;overflow:hidden;touch‑action:none}
+#gameWrap{position:relative;width:100vw;height:100vh}
+canvas{background:#4a7c59;display:block;width:100%;height:100%}
+/* 手机虚拟按键 */
+#mobileCtrl{position:absolute;bottom:20px;left:20px;display:none}
+.dpad{display:grid;grid‑template‑columns:60px 60px 60px;grid‑template‑rows:60px 60px 60px;gap:4px}
+.dpad button{border:none;background:rgba(255,255,255,0.25);color:#fff;font‑size:22px;border‑radius:8px}
+#btnAttack{position:absolute;bottom:40px;right:30px;width:80px;height:80px;border‑radius:50%;border:none;background:#c83838;color:#fff;font‑size:18px;display:none}
+#uiPanel{position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.65);padding:10px;border‑radius:8px;font‑size:14px}
+#bagInfo{margin‑top:6px;color:#9dffb0}
+@media (max‑width:768px){
+    #mobileCtrl{display:block}
+    #btnAttack{display:block}
+}
+</style>
+</head>
+<body>
+<div id="gameWrap">
+    <canvas id="gameCanvas"></canvas>
+    <div id="uiPanel">
+        <div>❤️生命：<span id="hpText">100</span></div>
+        <div>⚔武器：<span id="weaponText">拳头</span></div>
+        <div id="bagInfo">木头0 石头0 铁矿0 钻石0</div>
+    </div>
+
+    <div id="mobileCtrl">
+        <div class="dpad">
+            <div></div>
+            <button id="keyW">↑</button>
+            <div></div>
+            <button id="keyA">←</button>
+            <div></div>
+            <button id="keyD">→</button>
+            <div></div>
+            <button id="keyS">↓</button>
+            <div></div>
+        </div>
+    </div>
+    <button id="btnAttack">攻击</button>
+</div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+function resize(){
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener("resize",resize);
+
+// 玩家
+const player = {
+    x:300,y:300,w:28,h:28,speed:3,hp:100,maxHp:100,
+    weapon:"拳头",atk:6,attackCd:0,inAttack:false
+};
+const bag = {wood:0,stone:0,iron:0,diamond:0};
+
+//键盘状态
+const keys = {w:false,a:false,s:false,d:false,space:false};
+
+//地图物体：树、石头、洞穴
+let worldObjs = [];
+let monsters = [];
+
+//生成世界
+function genWorld(){
+    worldObjs = [];
+    monsters = [];
+    //树木
+    for(let i=0;i<18;i++){
+        worldObjs.push({type:"tree",x:Math.random()*canvas.width,y:Math.random()*canvas.height,w:36,h:36});
+    }
+    //石头
+    for(let i=0;i<12;i++){
+        worldObjs.push({type:"rock",x:Math.random()*canvas.width,y:Math.random()*canvas.height,w:32,h:32});
+    }
+    //洞穴入口
+    worldObjs.push({type:"cave",x:canvas.width‑120,y:canvas.height‑120,w:44,h:44});
+}
+
+//怪物模板
+function spawnMonster(type){
+    const defs = {
+        slime:{hp:28,atk:4,w:24,h:24,color:"#42d970",speed:1.2,name:"史莱姆"},
+        zombie:{hp:45,atk:8,w:28,h:28,color:"#706b5e",speed:1.6,name:"僵尸"},
+        skeleton:{hp:130,atk:17,w:30,h:30,color:"#dddddd",speed:2,name:"骷髅小BOSS"},
+        dragon:{hp:300,atk:26,w:48,h:48,color:"#992222",speed:2.3,name:"巨龙BOSS"}
+    };
+    const d = defs[type];
+    return {...d,x:Math.random()*canvas.width,y:Math.random()*canvas.height‑100,type};
+}
+
+//键盘PC
+window.addEventListener("keydown",e=>{
+    if(e.key.toLowerCase()==="w")keys.w=true;
+    if(e.key.toLowerCase()==="a")keys.a=true;
+    if(e.key.toLowerCase()==="s")keys.s=true;
+    if(e.key.toLowerCase()==="d")keys.d=true;
+    if(e.key===" ") {keys.space=true;player.inAttack=true;}
+});
+window.addEventListener("keyup",e=>{
+    if(e.key.toLowerCase()==="w")keys.w=false;
+    if(e.key.toLowerCase()==="a")keys.a=false;
+    if(e.key.toLowerCase()==="s")keys.s=false;
+    if(e.key.toLowerCase()==="d")keys.d=false;
+    if(e.key===" ") keys.space=false;
+});
+
+//手机虚拟按键
+function bindTouch(id,keyName){
+    const btn = document.getElementById(id);
+    btn.addEventListener("touchstart",e=>{e.preventDefault();keys[keyName]=true})
+    btn.addEventListener("touchend",e=>{e.preventDefault();keys[keyName]=false})
+}
+bindTouch("keyW","w");bindTouch("keyA","a");bindTouch("keyS","s");bindTouch("keyD","d");
+document.getElementById("btnAttack").addEventListener("touchstart",e=>{e.preventDefault();player.inAttack=true})
+
+//碰撞检测
+function rectOverlap(a,b){
+    return a.x < b.x+b.w && a.x+a.w>b.x && a.y < b.y+b.h && a.y+a.h>b.y;
+}
+
+//攻击逻辑
+function doAttack(){
+    if(player.attackCd>0) return;
+    player.attackCd = 25;
+    const attackBox = {
+        x:player.x‑22,y:player.y‑22,w:player.w+44,h:player.h+44
+    };
+    //打怪物
+    for(let i=monsters.length‑1;i>=0;i--){
+        const m = monsters[i];
+        if(rectOverlap(attackBox,m)){
+            m.hp -= player.atk + Math.floor(Math.random()*5);
+            if(m.hp<=0){
+                //击杀掉落
+                if(Math.random()<0.45) bag.wood+=1;
+                if(Math.random()<0.3) bag.stone+=1;
+                if(m.type==="skeleton"||m.type==="dragon"){
+                    if(Math.random()<0.4) bag.iron+=1;
+                    if(Math.random()<0.12) bag.diamond+=1;
+                }
+                monsters.splice(i,1);
+            }
+        }
+    }
+    //采集物体
+    for(let i=worldObjs.length‑1;i>=0;i--){
+        const obj = worldObjs[i];
+        if(rectOverlap(attackBox,obj)){
+            if(obj.type==="tree"){bag.wood+=3;worldObjs.splice(i,1);}
+            if(obj.type==="rock"){bag.stone+=2;worldObjs.splice(i,1);}
+            if(obj.type==="cave"){
+                //进洞穴刷洞穴怪物
+                monsters.push(spawnMonster("zombie"));
+                monsters.push(spawnMonster("skeleton"));
+                if(Math.random()<0.25) monsters.push(spawnMonster("dragon"));
+            }
+        }
+    }
+}
+
+//AI怪物追逐玩家
+function monsterAI(){
+    for(const m of monsters){
+        const dx = player.x‑m.x;
+        const dy = player.y‑m.y;
+        const dist = Math.hypot(dx,dy);
+        if(dist<280 && dist>28){
+            m.x += (dx/dist)*m.speed;
+            m.y += (dy/dist)*m.speed;
+        }
+        //怪物攻击玩家
+        if(dist<32){
+            player.hp -= m.atk*0.018;
+        }
+    }
+}
+
+//更新UI
+function updateUI(){
+    document.getElementById("hpText").innerText = Math.max(0,Math.floor(player.hp));
+    document.getElementById("weaponText").innerText = player.weapon;
+    document.getElementById("bagInfo").innerText = `木头${bag.wood} 石头${bag.stone} 铁矿${bag.iron} 钻石${bag.diamond}`;
+}
+
+//合成武器简易逻辑，按控制台想法，你可以在浏览器控制台调用
+// craftWoodSword() / craftIronSword() / craftDiamondSword()
+window.craftWoodSword = function(){
+    if(bag.wood>=5){bag.wood‑=5;player.weapon="木剑";player.atk=13;}
+}
+window.craftIronSword = function(){
+    if(bag.iron>=6){bag.iron‑=6;player.weapon="铁剑";player.atk=24;}
+}
+window.craftDiamondSword = function(){
+    if(bag.diamond>=4){bag.diamond‑=4;player.weapon="钻石剑";player.atk=42;}
+}
+
+//游戏循环
+function loop(){
+    ctx.fillStyle="#579b68";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    //玩家移动
+    if(keys.w) player.y -= player.speed;
+    if(keys.s) player.y += player.speed;
+    if(keys.a) player.x -= player.speed;
+    if(keys.d) player.x += player.speed;
+
+    player.x = Math.max(0,Math.min(canvas.width‑player.w,player.x));
+    player.y = Math.max(0,Math.min(canvas.height‑player.h,player.y));
+
+    if(player.inAttack){doAttack();player.inAttack=false;}
+    if(player.attackCd>0) player.attackCd‑=1;
+
+    monsterAI();
+
+    //绘制世界物体
+    for(const o of worldObjs){
+        if(o.type==="tree"){
+            ctx.fillStyle="#2e5935";
+            ctx.fillRect(o.x,o.y,o.w,o.h);
+        }else if(o.type==="rock"){
+            ctx.fillStyle="#888888";
+            ctx.fillRect(o.x,o.y,o.w,o.h);
+        }else if(o.type==="cave"){
+            ctx.fillStyle="#222222";
+            ctx.fillRect(o.x,o.y,o.w,o.h);
+        }
+    }
+
+    //绘制怪物
+    for(const m of monsters){
+        ctx.fillStyle=m.color;
+        ctx.fillRect(m.x,m.y,m.w,m.h);
+    }
+
+    //绘制玩家
+    ctx.fillStyle="#ffdd44";
+    ctx.fillRect(player.x,player.y,player.w,player.h);
+
+    updateUI();
+    requestAnimationFrame(loop);
+}
+
+genWorld();
+loop();
+</script>
+</body>
+</html>
