@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>2D荒野生存</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui}
+body{background:#111;color:#fff;overflow:hidden;touch-action:none}
+#gameWrap{position:relative;width:100vw;height:100vh}
+canvas{display:block;background:#579b68;width:100%;height:100%}
+
+#mobileCtrl{position:absolute;bottom:20px;left:20px;display:none}
+.dpad{display:grid;grid-template-columns:60px 60px 60px;grid-template-rows:60px 60px 60px;gap:4px}
+.dpad button{border:none;background:rgba(255,255,255,0.25);color:#fff;font-size:22px;border-radius:8px}
+#btnAttack{position:absolute;bottom:40px;right:30px;width:80px;height:80px;border-radius:50%;border:none;background:#c83838;color:#fff;font-size:18px;display:none}
+
+#uiPanel{position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.7);padding:10px;border-radius:8px;font-size:14px}
+#craftPanel{position:absolute;top:8px;right:8px;background:rgba(0,0,0,0.7);padding:10px;border-radius:8px}
+#craftPanel button{padding:4px 8px;margin:3px;border:none;border-radius:4px;background:#337744;color:white}
+#deathOverlay{display:none;position:absolute;inset:0;background:rgba(0,0,0,0.85);text-align:center;padding-top:200px;font-size:30px}
+#deathOverlay button{margin-top:20px;padding:10px 20px;font-size:18px}
+
+@media (max-width:768px){
+    #mobileCtrl{display:block}
+    #btnAttack{display:block}
+}
+</style>
+</head>
+<body>
+<div id="gameWrap">
+    <canvas id="gameCanvas"></canvas>
+
+    <div id="uiPanel">
+        <div>❤️生命：<span id="hpText">100</span></div>
+        <div>⚔武器：<span id="weaponText">拳头</span></div>
+        <div id="bagInfo">木头0 石头0 铁矿0 钻石0</div>
+        <div>📍位置：<span id="locText">地面森林</span></div>
+    </div>
+
+    <div id="craftPanel">
+        <div>🔨合成</div>
+        <button onclick="craftWoodSword()">木剑(×5木头)</button>
+        <button onclick="craftIronSword()">铁剑(×6铁矿)</button>
+        <button onclick="craftDiamondSword()">钻石剑(×4钻石)</button>
+    </div>
+
+    <div id="mobileCtrl">
+        <div class="dpad">
+            <div></div>
+            <button id="keyW">↑</button>
+            <div></div>
+            <button id="keyA">←</button>
+            <div></div>
+            <button id="keyD">→</button>
+            <div></div>
+            <button id="keyS">↓</button>
+            <div></div>
+        </div>
+    </div>
+    <button id="btnAttack">攻击</button>
+
+    <div id="deathOverlay">
+        <div>💀你死亡了</div>
+        <button onclick="restartGame()">重新开始</button>
+    </div>
+</div>
+
+<script>
+const canvas = document.getElementById("gameCanvas");
+const ctx = canvas.getContext("2d");
+
+function resize(){
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener("resize",resize);
+
+let player = {};
+let bag = {};
+let worldObjs = [];
+let monsters = [];
+let keys = {w:false,a:false,s:false,d:false,space:false};
+let gameState = "play"; // play / dead
+let currentScene = "ground";
+const MAX_MONSTER = 8;
+
+function initPlayer(){
+    player = {
+        x:300,y:300,w:28,h:28,speed:3,
+        hp:100,maxHp:100,weapon:"拳头",atk:6,
+        attackCd:0,inAttack:false,hitCd:0
+    }
+}
+function initBag(){
+    bag = {wood:0,stone:0,iron:0,diamond:0};
+}
+
+function genGroundWorld(){
+    worldObjs = [];
+    monsters = [];
+    for(let i=0;i<18;i++){
+        worldObjs.push({type:"tree",x:Math.random()*canvas.width,y:Math.random()*canvas.height,w:36,h:36});
+    }
+    for(let i=0;i<12;i++){
+        worldObjs.push({type:"rock",x:Math.random()*canvas.width,y:Math.random()*canvas.height,w:32,h:32});
+    }
+    worldObjs.push({type:"cavePortal",x:canvas.width-120,y:canvas.height-120,w:44,h:44});
+}
+function genCaveWorld(){
+    worldObjs = [];
+    monsters = [];
+    for(let i=0;i<8;i++){
+        worldObjs.push({type:"ironOre",x:Math.random()*canvas.width,y:Math.random()*canvas.height,w:34,h:34});
+    }
+    for(let i=0;i<4;i++){
+        worldObjs.push({type:"diamondOre",x:Math.random()*canvas.width,y:Math.random()*canvas.height,w:30,h:30});
+    }
+    worldObjs.push({type:"backPortal",x:80,y:80,w:44,h:44});
+}
+
+const monsterDef = {
+    slime:{hp:28,atk:4,w:24,h:24,color:"#42d970",speed:1.2},
+    zombie:{hp:45,atk:8,w:28,h:28,color:"#706b5e",speed:1.6},
+    skeleton:{hp:130,atk:17,w:30,h:30,color:"#dddddd",speed:2},
+    dragon:{hp:300,atk:26,w:48,h:48,color:"#992222",speed:2.3}
+};
+function spawnMonster(type){
+    if(monsters.length >= MAX_MONSTER) return;
+    const d = monsterDef[type];
+    monsters.push({...d,x:Math.random()*canvas.width,y:Math.random()*canvas.height-100,type});
+}
+
+window.addEventListener("keydown",e=>{
+    if(gameState!=="play") return;
+    const k = e.key.toLowerCase();
+    if(k==="w")keys.w=true;
+    if(k==="a")keys.a=true;
+    if(k==="s")keys.s=true;
+    if(k==="d")keys.d=true;
+    if(e.key===" "){keys.space=true;player.inAttack=true;e.preventDefault();}
+});
+window.addEventListener("keyup",e=>{
+    const k = e.key.toLowerCase();
+    if(k==="w")keys.w=false;
+    if(k==="a")keys.a=false;
+    if(k==="s")keys.s=false;
+    if(k==="d")keys.d=false;
+    if(e.key===" ") keys.space=false;
+});
+
+function bindTouch(id,key){
+    const el = document.getElementById(id);
+    el.addEventListener("touchstart",ev=>{ev.preventDefault();if(gameState==="play")keys[key]=true;})
+    el.addEventListener("touchend",ev=>{ev.preventDefault();keys[key]=false;})
+}
+bindTouch("keyW","w");bindTouch("keyA","a");bindTouch("akeyS","s");bindTouch("keyD","d");
+bindTouch("keyS","s");
+document.getElementById("btnAttack").addEventListener("touchstart",e=>{
+    e.preventDefault();
+    if(gameState==="play") player.inAttack=true;
+})
+
+function rectOverlap(a,b){
+    return a.x < b.x+b.w && a.x+a.w > b.x && a.y < b.y+b.h && a.y+a.h > b.y;
+}
+
+function doAttack(){
+    if(player.attackCd>0) return;
+    player.attackCd = 28;
+    const atkBox = {x:player.x-25,y:player.y-25,w:player.w+50,h:player.h+50};
+    for(let i=monsters.length-1;i>=0;i--){
+        const m = monsters[i];
+        if(rectOverlap(atkBox,m)){
+            m.hp -= player.atk + Math.floor(Math.random()*5);
+            if(m.hp <=0){
+                bag.wood += Math.random()<0.45 ?1:0;
+                bag.stone += Math.random()<0.3 ?1:0;
+                if(m.type==="skeleton"||m.type==="dragon"){
+                    bag.iron += Math.random()<0.4 ?1:0;
+                    bag.diamond += Math.random()<0.12 ?1:0;
+                }
+                monsters.splice(i,1);
+            }
+        }
+    }
+    for(let i=worldObjs.length-1;i>=0;i--){
+        const obj = worldObjs[i];
+        if(rectOverlap(atkBox,obj)){
+            if(obj.type==="tree"){ bag.wood+=3; worldObjs.splice(i,1); }
+            if(obj.type==="rock"){ bag.stone+=2; worldObjs.splice(i,1); }
+            if(obj.type==="ironOre"){ bag.iron+=2; worldObjs.splice(i,1); }
+            if(obj.type==="diamondOre"){ bag.diamond+=1; worldObjs.splice(i,1); }
+            if(obj.type==="cavePortal"){
+                currentScene = "cave";
+                genCaveWorld();
+                player.x=100;player.y=100;
+                spawnMonster("zombie");spawnMonster("skeleton");
+            }
+            if(obj.type==="backPortal"){
+                currentScene = "ground";
+                genGroundWorld();
+                player.x=300;player.y=300;
+            }
+        }
+    }
+}
+
+function monsterUpdate(){
+    for(const m of monsters){
+        const dx = player.x - m.x;
+        const dy = player.y - m.y;
+        const dist = Math.hypot(dx,dy);
+        if(dist <260 && dist>30){
+            m.x += (dx/dist)*m.speed;
+            m.y += (dy/dist)*m.speed;
+        }
+        if(dist <34 && player.hitCd <=0){
+            player.hp -= m.atk;
+            player.hitCd = 45;
+        }
+    }
+}
+
+function craftWoodSword(){
+    if(bag.wood >=5){ bag.wood-=5; player.weapon="木剑"; player.atk=13; }
+}
+function craftIronSword(){
+    if(bag.iron >=6){ bag.iron-=6; player.weapon="铁剑"; player.atk=24; }
+}
+function craftDiamondSword(){
+    if(bag.diamond >=4){ bag.diamond-=4; player.weapon="钻石剑"; player.atk=42; }
+}
+
+function updateUI(){
+    document.getElementById("hpText").innerText = Math.max(0,Math.floor(player.hp));
+    document.getElementById("weaponText").innerText = player.weapon;
+    document.getElementById("bagInfo").innerText = `木头${bag.wood} 石头${bag.stone} 铁矿${bag.iron} 钻石${bag.diamond}`;
+    document.getElementById("locText").innerText = currentScene==="ground"?"地面森林":"幽暗洞穴";
+}
+
+function render(){
+    if(currentScene==="ground") ctx.fillStyle="#579b68";
+    else ctx.fillStyle="#2c3033";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    for(const o of worldObjs){
+        if(o.type==="tree") ctx.fillStyle="#2e5935";
+        else if(o.type==="rock") ctx.fillStyle="#888888";
+        else if(o.type==="ironOre") ctx.fillStyle="#7777aa";
+        else if(o.type==="diamondOre") ctx.fillStyle="#60d0dd";
+        else if(o.type==="cavePortal"||o.type==="backPortal") ctx.fillStyle="#111111";
+        ctx.fillRect(o.x,o.y,o.w,o.h);
+    }
+    for(const m of monsters){
+        ctx.fillStyle = m.color;
+        ctx.fillRect(m.x,m.y,m.w,m.h);
+    }
+    ctx.fillStyle="#ffdd44";
+    ctx.fillRect(player.x,player.y,player.w,player.h);
+}
+
+function gameLoop(){
+    if(gameState === "play"){
+        if(keys.w) player.y -= player.speed;
+        if(keys.s) player.y += player.speed;
+        if(keys.a) player.x -= player.speed;
+        if(keys.d) player.x += player.speed;
+        player.x = Math.max(0,Math.min(canvas.width-player.w,player.x));
+        player.y = Math.max(0,Math.min(canvas.height-player.h,player.y));
+
+        if(player.inAttack){ doAttack(); player.inAttack=false; }
+        if(player.attackCd>0) player.attackCd--;
+        if(player.hitCd>0) player.hitCd--;
+
+        monsterUpdate();
+        if(player.hp <=0){
+            gameState = "dead";
+            document.getElementById("deathOverlay").style.display="block";
+        }
+    }
+    render();
+    updateUI();
+    requestAnimationFrame(gameLoop);
+}
+
+function restartGame(){
+    gameState = "play";
+    currentScene = "ground";
+    document.getElementById("deathOverlay").style.display="none";
+    initPlayer();
+    initBag();
+    genGroundWorld();
+}
+
+restartGame();
+gameLoop();
+</script>
+</body>
+</html>
