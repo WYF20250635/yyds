@@ -1,0 +1,242 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>荒野生存冒险</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;font-family:system-ui}
+body{background:#22272e;color:#eee;padding:14px;max-width:900px;margin:0 auto}
+.box{background:#2d333b;padding:14px;border-radius:10px;margin:10px 0}
+button{background:#388b46;color:white;border:none;padding:9px 14px;border-radius:6px;margin:4px;font-size:15px;cursor:pointer}
+button:hover{background:#48a858}
+button.danger{background:#b83b3b}
+button.danger:hover{background:#d14c4c}
+h2,h3{margin-bottom:10px;color:#79d288}
+.log{max-height:220px;overflow-y:auto;background:#1e2227;padding:8px;border-radius:6px;font-size:14px}
+.item-tag{display:inline-block;background:#444;padding:3px 8px;border-radius:4px;margin:3px}
+</style>
+</head>
+<body>
+<h2>🌲荒野生存冒险</h2>
+
+<div class="box">
+    <h3>👤人物状态</h3>
+    <div>生命值：<span id="hp">100</span> / 100</div>
+    <div>当前武器：<span id="weapon">拳头</span></div>
+    <div>所在位置：<span id="place">地面森林</span></div>
+</div>
+
+<div class="box">
+    <h3>🎒背包</h3>
+    <div id="bag">
+        <span class="item-tag">木头:0</span>
+        <span class="item-tag">石头:0</span>
+        <span class="item-tag">铁矿:0</span>
+        <span class="item-tag">钻石:0</span>
+    </div>
+</div>
+
+<div class="box">
+    <h3>🔨采集</h3>
+    <button onclick="gatherWood()">砍伐木头</button>
+    <button onclick="gatherStone()">挖石头</button>
+    <button onclick="gatherIron()">挖铁矿</button>
+    <button onclick="gatherDiamond()">挖钻石</button>
+</div>
+
+<div class="box">
+    <h3>⚒合成装备</h3>
+    <button onclick="craftWoodSword()">合成木剑（木头×5）</button>
+    <button onclick="craftIronSword()">合成铁剑（铁矿×6）</button>
+    <button onclick="craftDiamondSword()">合成钻石剑（钻石×4）</button>
+</div>
+
+<div class="box">
+    <h3>📍场景切换</h3>
+    <button onclick="goGround()">回到地面森林</button>
+    <button onclick="goCave()">进入幽暗洞穴</button>
+</div>
+
+<div class="box">
+    <h3>⚔战斗</h3>
+    <button onclick="findMonster()">寻找怪物</button>
+    <button class="danger" onclick="fight()">发起攻击</button>
+    <button onclick="runAway()">逃跑</button>
+    <div style="margin-top:8px">
+        敌人：<span id="monsterName">无</span> | 敌人血量：<span id="monsterHp">0</span>
+    </div>
+</div>
+
+<div class="box">
+    <h3>📜游戏日志</h3>
+    <div class="log" id="gameLog"></div>
+</div>
+
+<script>
+//游戏数据
+let player = {
+    hp:100,
+    maxHp:100,
+    weapon:"拳头",
+    atk:5,
+    place:"ground", // ground地面 cave洞穴
+    bag:{wood:0,stone:0,iron:0,diamond:0}
+}
+
+let currentMonster = null;
+
+//怪物库
+const monsterListGround = [
+    {name:"史莱姆",hp:25,atk:4},
+    {name:"僵尸",hp:40,atk:7}
+]
+const monsterListCave = [
+    {name:"洞穴僵尸",hp:60,atk:11},
+    {name:"骷髅【小BOSS】",hp:120,atk:16},
+    {name:"巨龙【大BOSS】",hp:280,atk:24}
+]
+
+function addLog(text){
+    const logDom = document.getElementById("gameLog");
+    logDom.innerHTML = `<div>${text}</div>` + logDom.innerHTML;
+}
+
+function refreshUi(){
+    document.getElementById("hp").innerText = player.hp;
+    document.getElementById("weapon").innerText = player.weapon;
+    document.getElementById("place").innerText = player.place==="ground"?"地面森林":"幽暗洞穴";
+    document.getElementById("bag").innerHTML = `
+        <span class="item-tag">木头:${player.bag.wood}</span>
+        <span class="item-tag">石头:${player.bag.stone}</span>
+        <span class="item-tag">铁矿:${player.bag.iron}</span>
+        <span class="item-tag">钻石:${player.bag.diamond}</span>
+    `;
+    if(currentMonster){
+        document.getElementById("monsterName").innerText = currentMonster.name;
+        document.getElementById("monsterHp").innerText = currentMonster.hp;
+    }else{
+        document.getElementById("monsterName").innerText = "无";
+        document.getElementById("monsterHp").innerText = "0";
+    }
+}
+
+//采集
+function gatherWood(){
+    player.bag.wood += Math.floor(Math.random()*3)+1;
+    addLog(`✅砍伐树木，获得木头！`);refreshUi();
+}
+function gatherStone(){
+    player.bag.stone += Math.floor(Math.random()*2)+1;
+    addLog(`✅挖掘石头，获得石头！`);refreshUi();
+}
+function gatherIron(){
+    if(player.place!=="cave"){addLog(`❌铁矿只在洞穴里面！先进入洞穴`);return;}
+    player.bag.iron += Math.floor(Math.random()*2)+1;
+    addLog(`✅挖到铁矿！`);refreshUi();
+}
+function gatherDiamond(){
+    if(player.place!=="cave"){addLog(`❌钻石只存在幽暗洞穴！`);return;}
+    if(Math.random()>0.25){
+        addLog(`💎没有找到钻石，继续试试`);
+    }else{
+        player.bag.diamond +=1;
+        addLog(`💎挖到珍贵钻石！`);
+    }
+    refreshUi();
+}
+
+//合成武器
+function craftWoodSword(){
+    if(player.bag.wood>=5){
+        player.bag.wood -=5;
+        player.weapon="木剑";
+        player.atk=12;
+        addLog(`🗡合成木剑！攻击力提升到12`);
+    }else addLog(`❌木头不够，需要5个木头`);
+    refreshUi();
+}
+function craftIronSword(){
+    if(player.bag.iron>=6){
+        player.bag.iron -=6;
+        player.weapon="铁剑";
+        player.atk=22;
+        addLog(`⚔合成铁剑！攻击力提升到22`);
+    }else addLog(`❌铁矿不够，需要6个铁矿`);
+    refreshUi();
+}
+function craftDiamondSword(){
+    if(player.bag.diamond>=4){
+        player.bag.diamond -=4;
+        player.weapon="钻石剑";
+        player.atk=40;
+        addLog(`✨合成钻石剑！攻击力提升到40！`);
+    }else addLog(`❌钻石不够，需要4颗钻石`);
+    refreshUi();
+}
+
+//切换场景
+function goGround(){
+    player.place="ground";
+    currentMonster=null;
+    addLog(`🌳回到地面森林，怪物消失`);refreshUi();
+}
+function goCave(){
+    player.place="cave";
+    currentMonster=null;
+    addLog(`🕳进入幽暗洞穴，危险提升，可以挖到铁矿钻石！`);refreshUi();
+}
+
+//找怪
+function findMonster(){
+    if(currentMonster){addLog(`⚠已经有怪物，先打完或者逃跑`);return;}
+    let pool = player.place==="ground"?monsterListGround:monsterListCave;
+    let r = pool[Math.floor(Math.random()*pool.length)];
+    currentMonster = {...r};
+    addLog(`👹遭遇 ${currentMonster.name}！准备战斗！`);
+    refreshUi();
+}
+
+//攻击
+function fight(){
+    if(!currentMonster){addLog(`❌没有敌人！点寻找怪物`);return;}
+    //玩家打怪物
+    let dmg = player.atk + Math.floor(Math.random()*6);
+    currentMonster.hp -= dmg;
+    addLog(`🗡你攻击${currentMonster.name}，造成${dmg}伤害！`);
+
+    if(currentMonster.hp<=0){
+        addLog(`🎉击杀 ${currentMonster.name}！`);
+        currentMonster=null;
+        refreshUi();
+        return;
+    }
+    //怪物反击
+    let mdmg = currentMonster.atk + Math.floor(Math.random()*4);
+    player.hp -= mdmg;
+    addLog(`💥${currentMonster.name}反击，你受到${mdmg}伤害！`);
+
+    if(player.hp<=0){
+        addLog(`💀你被打倒，游戏结束！刷新页面重来`);
+    }
+    refreshUi();
+}
+
+//逃跑
+function runAway(){
+    if(!currentMonster){return;}
+    if(Math.random()>0.45){
+        addLog(`🏃成功逃跑，怪物消失！`);
+        currentMonster=null;
+    }else{
+        let d = currentMonster.atk;
+        player.hp -=d;
+        addLog(`❌逃跑失败！被怪物攻击，受到${d}伤害`);
+    }
+    refreshUi();
+}
+
+refreshUi();
+</script>
+</body>
+</html>
