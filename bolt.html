@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Usain Bolt – The Fastest Man In Human History</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        html{
+            scroll-behavior: smooth;
+        }
+        body {
+            font-family: Arial, Helvetica, sans-serif;
+            background-color: #0f1419;
+            color: #eeeeee;
+            line-height: 1.8;
+            max-width: 1150px;
+            margin: 0 auto;
+            padding: 24px 16px;
+        }
+        header {
+            text-align: center;
+            padding:50px 24px;
+            background: linear-gradient(135deg,#ffd300,#009432);
+            color:#000000;
+            border-radius:16px;
+            margin-bottom:40px;
+            box-shadow: 0 8px 24px rgba(255,211,0,0.25);
+        }
+        h1 {
+            font-size: 2.6rem;
+            margin-bottom:12px;
+        }
+        .subtitle {
+            font-size:1.25rem;
+            font-weight:500;
+        }
+        .stats-row{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px,1fr));
+            gap:16px;
+            margin:24px 0;
+        }
+        .stat-card{
+            background:#1e2732;
+            padding:18px;
+            border-radius:10px;
+            text-align:center;
+            box-shadow:0 4px 12px #00000044;
+        }
+        .stat-card .num{
+            font-size:2rem;
+            color:#ffd300;
+            font-weight:bold;
+        }
+        section {
+            background:#1a222c;
+            padding:32px 28px;
+            border-radius:14px;
+            margin-bottom:30px;
+            box-shadow: 0 6px 18px rgba(0,0,0,0.35);
+        }
+        h2 {
+            color:#ffd300;
+            margin-bottom:20px;
+            border-left:6px solid #009432;
+            padding-left:14px;
+            font-size:1.6rem;
+        }
+        p {
+            margin-bottom:16px;
+            font-size:1.08rem;
+        }
+        table {
+            width:100%;
+            border-collapse: collapse;
+            margin:24px 0;
+        }
+        th,td {
+            border:1px solid #384452;
+            padding:14px 10px;
+            text-align:center;
+        }
+        th {
+            background-color:#27313d;
+            color:#ffd300;
+        }
+        .timeline-item{
+            border-left:4px solid #009432;
+            padding-left:20px;
+            margin:22px 0;
+        }
+        .year{
+            color:#ffd300;
+            font-weight:bold;
+            font-size:1.15rem;
+        }
+        #raceCanvasWrap{
+            width:100%;
+            overflow-x:auto;
+            margin:20px 0;
+        }
+        #raceCanvas{
+            background:#c43e23;
+            border-radius:12px;
+            display:block;
+            margin:0 auto;
+            box-shadow:0 4px 14px #00000050;
+        }
+        .btn-group{
+            text-align:center;
+            margin:18px 0;
+        }
+        button{
+            padding:12px 26px;
+            background:#ffd300;
+            color:#000000;
+            border:none;
+            border-radius:8px;
+            font-weight:bold;
+            font-size:1.05rem;
+            margin:0 8px;
+            cursor:pointer;
+            transition: 0.2s;
+        }
+        button:hover{
+            background:#ffe047;
+            transform: translateY(-2px);
+        }
+        .note-text{
+            color:#ffb8b8;
+            margin-top:10px;
+        }
+        footer{
+            text-align:center;
+            margin-top:50px;
+            color:#90a4b7;
+            padding:24px;
+            font-size:0.95rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Usain St Leo Bolt</h1>
+        <div class="subtitle">Jamaican Lightning · The Fastest Human Being In Recorded History</div>
+    </header>
+
+    <section>
+        <h2>Basic Profile & Biography</h2>
+        <div class="stats-row">
+            <div class="stat-card">
+                <div class="num">1.96 m</div>
+                <div>Height</div>
+            </div>
+            <div class="stat-card">
+                <div class="num">9.58 s</div>
+                <div>100‑m WR</div>
+            </div>
+            <div class="stat-card">
+                <div class="num">8</div>
+                <div>Olympic Golds</div>
+            </div>
+            <div class="stat-card">
+                <div class="num">11</div>
+                <div>World Champ Golds</div>
+            </div>
+        </div>
+        <p>Usain Bolt was born on August 21, 1986, in Trelawny Parish, Jamaica. He is a retired Jamaican track‑and‑field sprinter who redefined the limits of human speed. Unlike most short‑distance runners with compact bodies, Bolt stood 1.96 meters tall, relying on extraordinary long stride length of about 2.44 meters and powerful late‑race acceleration to beat opponents worldwide.</p>
+        <p>During an average men’s 100‑meter dash, typical elite athletes complete roughly 44‑46 total steps. Bolt could finish the same race in only around 41 steps. In childhood, Bolt enjoyed playing cricket. His physical education coach spotted his outstanding running talent and guided him toward competitive athletics. At the 2002 World Junior Championships, at age 15, Bolt claimed the 200‑meter gold medal and became the youngest world junior champion ever. He officially turned professional sprinter in 2004.</p>
+    </section>
+
+    <section>
+        <h2>Major Career Timeline</h2>
+        <div class="timeline-item">
+            <div class="year">2008｜Beijing Summer Olympics</div>
+            <p>At Beijing Bird’s Nest Stadium, Usain Bolt rose to global fame. He set a new 100‑meter world record of 9.69 seconds, even celebrating before crossing the finish line. He also won gold medals for 200‑meter sprint and 4×100‑meter relay, breaking world records in all three events. The world witnessed the power of Jamaican Lightning.</p>
+        </div>
+        <div class="timeline-item">
+            <div class="year">2009｜IAAF World Championships Berlin</div>
+            <p>This tournament delivered two of the most iconic results in athletics history. Bolt clocked 9.58 seconds for men’s 100 m and 19.19 seconds for men’s 200 m. Both world records remain unbroken decades later, widely considered the absolute ceiling for human sprint performance.</p>
+        </div>
+        <div class="timeline-item">
+            <div class="year">2012｜London Summer Olympics</div>
+            <p>Bolt repeated his triple‑gold performance, taking victories in 100 m, 200 m and 4×100 m relay. He maintained absolute dominance over global sprint competitors.</p>
+        </div>
+        <div class="timeline-item">
+            <div class="year">2016｜Rio de Janeiro Olympics — Triple‑Triple Achievement</div>
+            <p>He completed the historic “Triple‑Triple”: winning gold for 100 m, 200 m and 4×100 m relay across three consecutive Olympic Games. No other sprinter in history has accomplished this milestone.</p>
+        </div>
+        <div class="timeline-item">
+            <div class="year">2017｜London World Championships — The Final Race</div>
+            <p>This marked Bolt’s final major international athletics competition. He earned bronze in the men’s 100‑meter final. In the men’s 4×100‑meter relay final, running anchor leg for Jamaica, he suffered an acute hamstring tear mid‑sprint and collapsed onto the track. Rejecting wheel‑chair assistance, he walked barefoot past the finish line supported by teammates. His legendary competitive career closed with this unforgettable, bittersweet scene.</p>
+        </div>
+    </section>
+
+    <section>
+        <h2>Official World Records Held By Usain Bolt</h2>
+        <table>
+            <tr>
+                <th>Track Event</th>
+                <th>Record Time</th>
+                <th>Competition Venue</th>
+                <th>Year</th>
+            </tr>
+            <tr>
+                <td>Men's 100 Metres</td>
+                <td>9.58 s</td>
+                <td>Berlin World Championships</td>
+                <td>2009</td>
+            </tr>
+            <tr>
+                <td>Men's 200 Metres</td>
+                <td>19.19 s</td>
+                <td>Berlin World Championships</td>
+                <td>2009</td>
+            </tr>
+            <tr>
+                <td>4×100 Metres Relay (Jamaica)</td>
+                <td>36.84 s</td>
+                <td>London Olympic Games</td>
+                <td>2012</td>
+            </tr>
+        </table>
+        <p>Throughout his professional career, Usain Bolt collected 8 Olympic gold medals and 11 World Championship gold medals. Countless top‑level sprinters have tried their utmost to approach his benchmark performances, yet nobody has managed to surpass those famous world records.</p>
+    </section>
+
+    <section>
+        <h2>🏃 Race Simulation: Bolt’s Final 4×100‑meter Relay London 2017</h2>
+        <p>Simulation for anchor‑leg phase of relay final. Athletes receive baton at different timings. Usain Bolt suffers hamstring injury near finish line. Press buttons to start or reset.</p>
+        <div class="btn-group">
+            <button onclick="startRace()">▶ Play Simulation</button>
+            <button onclick="resetRace()">↺ Reset Track</button>
+        </div>
+        <div id="raceCanvasWrap">
+            <canvas id="raceCanvas" width="1020" height="260"></canvas>
+        </div>
+        <p class="note-text">Note: This animated demo reproduces Usain Bolt’s very last official international track‑and‑field competition. True legends are not always undefeated; greatness also includes painful regret.</p>
+    </section>
+
+    <section>
+        <h2>Legacy & Global Influence</h2>
+        <p>Before Bolt, coaches believed elite sprinters should possess short stature for high step frequency. Usain Bolt overturned that traditional theory and demonstrated that extreme speed could also come from giant stride length. On competition grounds, he was cheerful, confident and charismatic. His iconic “Lightning Bolt” victory pose spread all over every continent.</p>
+        <p>Even though his career concluded with injury and disappointment, it never weakens his historical status. From teenage prodigy to multi‑champion superstar and then injured retiring athlete, Bolt delivered far more than numeric records. He represents human courage to keep challenging physical boundaries. After formal retirement from athletics, he explored professional football opportunities and managed personal business projects. Nevertheless, people will always remember the yellow‑uniformed lightning flashing on the red synthetic track.</p>
+    </section>
+
+    <footer>
+        Usain Bolt Educational Webpage | All facts sourced from public World Athletics official competition archives
+    </footer>
+
+<script>
+const canvas = document.getElementById("raceCanvas");
+const ctx = canvas.getContext('2d');
+let animId = null;
+let state = "ready";
+
+// 每位第四棒选手：不同启动延迟，模拟接棒时间不一致
+let athletes = [
+    {x:20, lane:1, color:"#ffffff", startDelay:0, speed:2.1, running:false, fall:false},
+    {x:20, lane:2, color:"#ffd300", startDelay:32, speed:2.6, running:false, fall:false}, // Bolt
+    {x:20, lane:3, color:"#ff4455", startDelay:12, speed:2.2, running:false, fall:false},
+    {x:20, lane:4, color:"#33bbff", startDelay:22, speed:2.15, running:false, fall:false}
+];
+let frameCount = 0;
+
+function drawTrack(){
+    ctx.fillStyle="#c43e23";
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.strokeStyle="#ffffff";
+    ctx.lineWidth=2;
+    for(let i=0;i<7;i++){
+        ctx.beginPath();
+        ctx.moveTo(0, 25+i*34);
+        ctx.lineTo(canvas.width,25+i*34);
+        ctx.stroke();
+    }
+    ctx.fillStyle="#ffffff";
+    ctx.fillRect(canvas.width-14,22,5,200);
+    // 画布标题标签
+    ctx.fillStyle="#ffffff";
+    ctx.font="bold 18px Arial";
+    ctx.fillText("4×100‑METERS RELAY FINAL · LONDON 2017", 20,22);
+}
+
+function drawAthlete(x,y,color,isFall){
+    ctx.save();
+    ctx.translate(x,y);
+    if(isFall){
+        ctx.fillStyle=color;
+        ctx.fillRect(-22,-6,44,20);
+        ctx.fillStyle="#000000";
+        ctx.beginPath();
+        ctx.arc(-4,-18,12,0,Math.PI*2);
+        ctx.fill();
+    }else{
+        ctx.fillStyle=color;
+        ctx.fillRect(-14,-14,28,24);
+        ctx.fillStyle="#000000";
+        ctx.beginPath();
+        ctx.arc(0,-26,12,0,Math.PI*2);
+        ctx.fill();
+    }
+    ctx.restore();
+}
+
+function resetRace(){
+    if(animId) cancelAnimationFrame(animId);
+    state = "ready";
+    frameCount = 0;
+    athletes = [
+        {x:20, lane:1, color:"#ffffff", startDelay:0, speed:2.1, running:false, fall:false},
+        {x:20, lane:2, color:"#ffd300", startDelay:32, speed:2.6, running:false, fall:false},
+        {x:20, lane:3, color:"#ff4455", startDelay:12, speed:2.2, running:false, fall:false},
+        {x:20, lane:4, color:"#33bbff", startDelay:22, speed:2.15, running:false, fall:false}
+    ];
+    drawTrack();
+    athletes.forEach(a=>{
+        drawAthlete(a.x, 25+a.lane*34, a.color, a.fall);
+    });
+}
+
+function startRace(){
+    if(state !== "ready") return;
+    state = "run";
+    frameCount = 0;
+
+    function loop(){
+        drawTrack();
+        frameCount++;
+        for(let a of athletes){
+            // 根据帧数判断是否接棒，每个选手延迟不一样
+            if(!a.running && frameCount >= a.startDelay){
+                a.running = true;
+            }
+            if(a.running && !a.fall){
+                a.x += a.speed;
+                // Bolt受伤判定
+                if(a.color === "#ffd300" && a.x >710){
+                    a.fall = true;
+                }
+            }
+            drawAthlete(a.x, 25+a.lane*34, a.color, a.fall);
+        }
+
+        let allDone = athletes.every(a=> a.fall || a.x >= canvas.width);
+        if(allDone){
+            state = "stop";
+            return;
+        }
+        animId = requestAnimationFrame(loop);
+    }
+    loop();
+}
+
+window.onload = resetRace;
+</script>
+</body>
+</html>
