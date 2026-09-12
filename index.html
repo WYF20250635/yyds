@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>复仇者牛来 - 微电影官网</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: "Microsoft Yahei", sans-serif;
+        }
+        body {
+            background-color: #111;
+            color: #fff;
+        }
+        /* 封面首页 */
+        #coverPage {
+            width: 100vw;
+            height: 100vh;
+            overflow: hidden;
+            position: relative;
+            cursor: pointer;
+        }
+        #coverImg {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: brightness(0.7);
+        }
+        .cover-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+        }
+        .cover-text h1 {
+            font-size: 4rem;
+            text-shadow: 0 0 12px #ffaa00;
+            margin-bottom: 20px;
+        }
+        .cover-text p {
+            font-size: 1.4rem;
+            color: #eee;
+        }
+        .tip {
+            margin-top: 30px;
+            font-size: 1.2rem;
+            animation: blink 1.5s infinite;
+        }
+        @keyframes blink {
+            0%,100% {opacity: 1;}
+            50% {opacity: 0.3;}
+        }
+        /* 电影详情页面，默认隐藏 */
+        #moviePage {
+            display: none;
+            padding: 40px 20px;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        #moviePage h2 {
+            font-size: 2.6rem;
+            color: #ffbc2e;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .video-box {
+            width: 100%;
+            background: #000;
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 40px;
+        }
+        video {
+            width: 100%;
+            display: block;
+        }
+        .grid-container {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+        }
+        .card {
+            background: #1f1f1f;
+            padding: 24px;
+            border-radius: 12px;
+            border-left: 4px solid #ffbc2e;
+        }
+        .card h3 {
+            color: #ffbc2e;
+            margin-bottom: 12px;
+            font-size: 1.3rem;
+        }
+        .back-btn {
+            display: block;
+            width: fit-content;
+            margin: 40px auto 0;
+            padding: 12px 28px;
+            background: #ffbc2e;
+            color: #000;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            border: none;
+            font-size: 1rem;
+        }
+        .back-btn:hover {
+            background: #ffd369;
+        }
+    </style>
+</head>
+<body>
+    <!-- 封面页 -->
+    <div id="coverPage">
+        <img id="coverImg" src="cover.jpg" alt="复仇者牛来 封面">
+        <div class="cover-text">
+            <h1>复仇者牛来</h1>
+            <p>原创微电影</p>
+            <div class="tip">点击画面进入影片页面</div>
+        </div>
+    </div>
+
+    <!-- 电影详情页 -->
+    <div id="moviePage">
+        <h2>复仇者牛来</h2>
+        <div class="video-box">
+            <!-- 直接读取根目录 movie.mp4，网页原生播放器 -->
+            <video controls preload="metadata">
+                <source src="movie.mp4" type="video/mp4">
+                你的浏览器不支持视频播放。
+            </video>
+        </div>
+
+        <div class="grid-container">
+            <div class="card">
+                <h3>📖 影片简介</h3>
+                <p>复仇者牛来登场！一场充满热血与搞笑的冒险故事，本片由我们团队独立拍摄制作。</p>
+            </div>
+            <div class="card">
+                <h3>🦸 主角介绍</h3>
+                <p>牛来，本片主角。拥有超强信念，直面危机，开启属于他的传奇故事。</p>
+            </div>
+            <div class="card">
+                <h3>🎬 配音</h3>
+                <p>吴予枫</p>
+            </div>
+            <div class="card">
+                <h3>🎥 演职员表</h3>
+                <p>导演：罗孝晔 吴予枫<br>主演：牛来<br>拍摄剪辑：罗孝晔 吴予枫</p>
+            </div>
+        </div>
+
+        <button class="back-btn" onclick="backToCover()">返回封面首页</button>
+    </div>
+
+    <script>
+        const coverPage = document.getElementById('coverPage');
+        const moviePage = document.getElementById('moviePage');
+        const video = document.querySelector('video');
+
+        // 点击封面切换页面
+        coverPage.addEventListener('click', ()=>{
+            coverPage.style.display = 'none';
+            moviePage.style.display = 'block';
+            window.scrollTo(0,0);
+        })
+
+        // 返回封面，并且暂停视频
+        function backToCover(){
+            moviePage.style.display = 'none';
+            coverPage.style.display = 'block';
+            video.pause();
+            video.currentTime = 0;
+        }
+    </script>
+</body>
+</html>
