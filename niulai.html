@@ -1,0 +1,411 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>复仇者牛来 - 微电影官网</title>
+<style>
+    * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+        font-family: "Microsoft Yahei", sans-serif;
+    }
+
+    body {
+        background-color: #111;
+        color: #fff;
+    }
+
+    /* 封面首页 */
+    #coverPage {
+        width: 100vw;
+        height: 100vh;
+        overflow: hidden;
+        position: relative;
+        cursor: pointer;
+    }
+
+    #coverImg {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        filter: brightness(0.7);
+    }
+
+    .cover-text {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        text-align: center;
+    }
+
+    .cover-text h1 {
+        font-size: 4rem;
+        text-shadow: 0 0 12px #ffaa00;
+        margin-bottom: 20px;
+    }
+
+    .cover-text p {
+        font-size: 1.4rem;
+        color: #eee;
+    }
+
+    .tip {
+        margin-top: 30px;
+        font-size: 1.2rem;
+        animation: blink 1.5s infinite;
+    }
+
+    @keyframes blink {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.3; }
+    }
+
+    /* 电影详情页 */
+    #moviePage {
+        display: none;
+        padding: 40px 20px;
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    #moviePage h2 {
+        font-size: 2.6rem;
+        color: #ffbc2e;
+        text-align: center;
+        margin-bottom: 30px;
+    }
+
+    .video-box {
+        width: 100%;
+        background: #000;
+        border-radius: 10px;
+        overflow: hidden;
+        margin-bottom: 40px;
+    }
+
+    video {
+        width: 100%;
+        display: block;
+    }
+
+    .grid-container {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+        gap: 24px;
+    }
+
+    .card {
+        background: #1f1f1f;
+        padding: 24px;
+        border-radius: 12px;
+        border-left: 4px solid #ffbc2e;
+    }
+
+    .card h3 {
+        color: #ffbc2e;
+        margin-bottom: 12px;
+        font-size: 1.3rem;
+    }
+
+    .btn-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 16px;
+        justify-content: center;
+        margin-top: 40px;
+    }
+
+    .back-btn,
+    .download-btn,
+    .game-open-btn {
+        padding: 12px 28px;
+        color: #000;
+        font-weight: bold;
+        border-radius: 8px;
+        cursor: pointer;
+        border: none;
+        font-size: 1rem;
+        text-decoration: none;
+    }
+
+    .back-btn {
+        background: #ffbc2e;
+    }
+
+    .back-btn:hover {
+        background: #ffd369;
+    }
+
+    .download-btn {
+        background: #22bb66;
+    }
+
+    .download-btn:hover {
+        background: #44dd88;
+    }
+
+    .game-open-btn {
+        background: #6699ff;
+    }
+
+    .game-open-btn:hover {
+        background: #88b4ff;
+    }
+
+    /* 游戏二次确认弹窗 */
+    #confirmGamePopup {
+        display: none;
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.75);
+        z-index: 99;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .confirm-box {
+        background: #222;
+        padding: 32px;
+        border-radius: 14px;
+        text-align: center;
+        max-width: 90%;
+    }
+
+    .confirm-box p {
+        font-size: 1.15rem;
+        margin-bottom: 24px;
+        line-height: 1.6;
+    }
+
+    .start-game-btn {
+        padding: 14px 30px;
+        background: #ffbc2e;
+        border: none;
+        border-radius: 8px;
+        font-size: 1.1rem;
+        font-weight: bold;
+        cursor: pointer;
+    }
+
+    .cancel-game-btn {
+        padding: 14px 30px;
+        background: #555;
+        border: none;
+        border-radius: 8px;
+        font-size: 1.1rem;
+        font-weight: bold;
+        cursor: pointer;
+        margin-left: 12px;
+    }
+
+    /* 牛生蛋游戏界面 */
+    #gameScreen {
+        display: none;
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        overflow: hidden;
+        cursor: pointer;
+        background: #000;
+    }
+
+    #gameBgImg {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: block;
+        pointer-events: auto;
+    }
+
+    .game-close {
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        padding: 10px 20px;
+        background: #ff4444;
+        border: none;
+        color: white;
+        border-radius: 8px;
+        font-size: 1rem;
+        cursor: pointer;
+        z-index: 102;
+    }
+
+    .game-tip {
+        position: absolute;
+        top: 24px;
+        left: 50%;
+        transform: translateX(-50%);
+        color: white;
+        font-size: 20px;
+        text-shadow: 0 0 8px #000, 0 0 12px #000;
+        z-index: 102;
+        pointer-events: none;
+    }
+
+    /* 蛋的样式 */
+    .egg {
+        position: absolute;
+        width: 70px;
+        height: 90px;
+        background: #fff;
+        border-radius: 50% 50% 50% 50% / 60% 60% 40% 40%;
+        border: 2px solid #ddd;
+        box-shadow: inset -8px -8px 12px rgba(150, 150, 150, 0.4);
+        cursor: pointer;
+        z-index: 101;
+        user-select: none;
+    }
+
+    .egg.break {
+        transform: scale(1.4) rotate(20deg);
+        opacity: 0;
+        pointer-events: none;
+    }
+</style>
+</head>
+
+<body>
+
+    <!-- 封面页 -->
+    <div id="coverPage">
+        <img id="coverImg" src="cover.jpg" alt="复仇者牛来 封面" />
+        <div class="cover-text">
+            <h1>复仇者牛来</h1>
+            <p>原创微电影</p>
+            <div class="tip">点击画面进入影片页面</div>
+        </div>
+    </div>
+
+    <!-- 电影详情页 -->
+    <div id="moviePage">
+        <h2>复仇者牛来</h2>
+
+        <div class="video-box">
+            <video controls preload="metadata">
+                <source src="movie.mp4" type="video/mp4" />
+                你的浏览器不支持视频播放。
+            </video>
+        </div>
+
+        <div class="grid-container">
+            <div class="card">
+                <h3>📖 影片简介</h3>
+                <p>复仇者牛来登场！一场充满热血与搞笑的冒险故事，本片由我们团队独立拍摄制作。</p>
+            </div>
+            <div class="card">
+                <h3>🦸 主角介绍</h3>
+                <p>牛来，本片主角。拥有超强信念，直面危机，开启属于他的传奇故事。</p>
+            </div>
+            <div class="card">
+                <h3>🎬 剧照相册</h3>
+                <p>后续可以在这里添加更多电影截图、幕后花絮照片。</p>
+            </div>
+            <div class="card">
+                <h3>🎥 演职员表</h3>
+                <p>导演：XXX<br>主演：XXX<br>拍摄剪辑：XXX</p>
+            </div>
+        </div>
+
+        <div class="btn-group">
+            <button class="back-btn" onclick="backToCover()">返回封面首页</button>
+            <a class="download-btn" href="movie.zip" download>📥 下载影片（ZIP压缩包）</a>
+            <button class="game-open-btn" onclick="openGameConfirm()">🎮 打开牛生蛋小游戏</button>
+        </div>
+    </div>
+
+    <!-- 游戏二次确认弹窗 -->
+    <div id="confirmGamePopup">
+        <div class="confirm-box">
+            <p>如果你确定真的要玩这个小游戏的话，请你再次点击开启此游戏。</p>
+            <button class="start-game-btn" onclick="startGame()">开启此游戏</button>
+            <button class="cancel-game-btn" onclick="closeConfirm()">取消</button>
+        </div>
+    </div>
+
+    <!-- 牛生蛋游戏界面 -->
+    <div id="gameScreen">
+        <img id="gameBgImg" src="cover.jpg" alt="牛来游戏背景" />
+        <div class="game-tip">点击牛来生蛋，点击蛋打碎它</div>
+        <button class="game-close" onclick="closeGame()">关闭游戏</button>
+    </div>
+
+<script>
+    const coverPage = document.getElementById("coverPage");
+    const moviePage = document.getElementById("moviePage");
+    const video = document.querySelector("video");
+    const confirmPopup = document.getElementById("confirmGamePopup");
+    const gameScreen = document.getElementById("gameScreen");
+    const gameBgImg = document.getElementById("gameBgImg");
+
+    // 关闭确认弹窗
+    confirmPopup.style.display = "none";
+
+    // 封面进入电影页
+    coverPage.addEventListener("click", function () {
+        coverPage.style.display = "none";
+        moviePage.style.display = "block";
+        window.scrollTo(0, 0);
+    });
+
+    // 返回封面
+    function backToCover() {
+        moviePage.style.display = "none";
+        coverPage.style.display = "block";
+        video.pause();
+        video.currentTime = 0;
+    }
+
+    // 打开游戏确认弹窗
+    function openGameConfirm() {
+        confirmPopup.style.display = "flex";
+    }
+
+    // 关闭确认弹窗
+    function closeConfirm() {
+        confirmPopup.style.display = "none";
+    }
+
+    // 开启游戏
+    function startGame() {
+        confirmPopup.style.display = "none";
+        gameScreen.style.display = "block";
+    }
+
+    // 关闭游戏并清蛋
+    function closeGame() {
+        gameScreen.style.display = "none";
+        document.querySelectorAll(".egg").forEach(function (egg) {
+            egg.remove();
+        });
+    }
+
+    // 只点击背景图时生蛋
+    gameBgImg.addEventListener("click", function (e) {
+        var egg = document.createElement("div");
+        egg.className = "egg";
+
+        var x = e.clientX - 35;
+        var y = e.clientY - 45;
+
+        egg.style.left = x + "px";
+        egg.style.top = y + "px";
+
+        // 点击蛋只碎蛋，不再生蛋
+        egg.addEventListener("click", function (ev) {
+            ev.stopPropagation();
+            egg.classList.add("break");
+            setTimeout(function () {
+                egg.remove();
+            }, 200);
+        });
+
+        gameScreen.appendChild(egg);
+    });
+</script>
+
+</body>
+</html>
